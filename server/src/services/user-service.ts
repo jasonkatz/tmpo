@@ -1,0 +1,27 @@
+import { userDao, User } from "../dao/user-dao";
+
+export const userService = {
+  async findOrCreate(data: {
+    auth0Id: string;
+    email: string;
+    name?: string;
+  }): Promise<{ id: string; email: string; name?: string }> {
+    let user = await userDao.findByAuth0Id(data.auth0Id);
+
+    if (!user) {
+      user = await userDao.create(data);
+    } else if (data.name && user.name !== data.name) {
+      user = (await userDao.update(user.id, { name: data.name })) || user;
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name || undefined,
+    };
+  },
+
+  async findById(id: string): Promise<User | null> {
+    return userDao.findById(id);
+  },
+};

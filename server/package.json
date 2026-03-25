@@ -1,0 +1,45 @@
+{
+    "name": "cadence-server",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "bun --watch src/index.ts",
+        "build": "bun build src/index.ts --outdir dist --target bun",
+        "start": "bun dist/index.js",
+        "openapi:gen": "bunx openapi-typescript schema.yaml -o src/types/api.ts",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "test": "bun test",
+        "test:watch": "bun test --watch",
+        "migrate:create": "dotenv -- bun node-pg-migrate create",
+        "migrate:up": "dotenv -- bun node-pg-migrate up",
+        "migrate:down": "dotenv -- bun node-pg-migrate down",
+        "db:reset": "bun run migrate:down -- --count 9999 && bun run migrate:up"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "express": "^4.21.2",
+        "express-oauth2-jwt-bearer": "^1.6.0",
+        "express-openapi-validator": "^5.3.8",
+        "express-rate-limit": "^7.5.0",
+        "pg": "^8.13.1",
+        "uuid": "^11.0.5",
+        "winston": "^3.17.0",
+        "node-pg-migrate": "^7.9.1",
+        "zod": "^3.24.1"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^5.0.0",
+        "@types/pg": "^8.11.10",
+        "@types/uuid": "^10.0.0",
+        "dotenv-cli": "^11.0.0",
+        "eslint": "^9.17.0",
+        "eslint-config-prettier": "^9.1.0",
+        "openapi-typescript": "^7.4.4",
+        "typescript": "~5.7.2",
+        "typescript-eslint": "^8.19.1"
+    }
+}
