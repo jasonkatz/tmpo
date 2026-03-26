@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum CadenceError {
     #[error("Agent '{role}' failed: {message}")]
     AgentFailed { role: String, message: String },

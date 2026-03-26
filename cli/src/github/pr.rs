@@ -192,6 +192,7 @@ pub async fn clear_review_comments(repo: &str, pr_num: u64) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn post_pr_comment(repo: &str, pr_num: u64, body: &str) -> Result<()> {
     Command::new("gh")
         .args(["pr", "comment", &pr_num.to_string(), "--repo", repo, "--body", body])

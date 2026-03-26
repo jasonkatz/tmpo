@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CadenceConfig {
     pub notify: Option<NotifyConfig>,
@@ -12,16 +12,6 @@ pub struct CadenceConfig {
     pub timeouts: TimeoutConfig,
 }
 
-impl Default for CadenceConfig {
-    fn default() -> Self {
-        Self {
-            notify: None,
-            defaults: DefaultsConfig::default(),
-            agents: AgentsConfig::default(),
-            timeouts: TimeoutConfig::default(),
-        }
-    }
-}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NotifyConfig {

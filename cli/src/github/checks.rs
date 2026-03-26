@@ -83,8 +83,7 @@ pub async fn get_failure_logs(repo: &str, pr_num: u64) -> Result<String> {
     // Extract run ID from the link
     let run_id = link
         .split('/')
-        .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
-        .last()
+        .rfind(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
         .unwrap_or("")
         .to_string();
 

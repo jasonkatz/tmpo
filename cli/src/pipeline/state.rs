@@ -119,6 +119,7 @@ impl WorkflowState {
         format!("{mins}m {remaining_secs}s")
     }
 
+    #[allow(dead_code)]
     pub fn delete(id: &str) -> Result<()> {
         let dir = CadenceConfig::workflows_dir()?;
         let path = dir.join(format!("{id}.json"));

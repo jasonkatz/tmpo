@@ -17,6 +17,7 @@ pub struct ClaudeAgent {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct AgentResponse {
     pub text: String,
     pub exit_code: i32,
