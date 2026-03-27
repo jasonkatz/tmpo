@@ -5,7 +5,10 @@ import os from "os";
 
 const router = Router();
 
-function workflowsDir(): string {
+// Workflow IDs are the first 8 hex characters of a UUID v4 (see run.rs).
+const WORKFLOW_ID_RE = /^[0-9a-f]{8}$/i;
+
+export function workflowsDir(): string {
   // Mirrors CadenceConfig::workflows_dir() in Rust:
   //   dirs::config_dir() -> ~/Library/Application Support on macOS, ~/.config on Linux
   const home = os.homedir();
@@ -16,7 +19,7 @@ function workflowsDir(): string {
   return path.join(configBase, "cadence", "workflows");
 }
 
-interface WorkflowState {
+export interface WorkflowState {
   id: string;
   task: string;
   stage: string;
@@ -30,7 +33,7 @@ interface WorkflowState {
   error: string | null;
 }
 
-async function readWorkflowFiles(): Promise<WorkflowState[]> {
+export async function readWorkflowFiles(): Promise<WorkflowState[]> {
   const dir = workflowsDir();
   let entries: string[];
   try {
@@ -42,6 +45,9 @@ async function readWorkflowFiles(): Promise<WorkflowState[]> {
   const workflows: WorkflowState[] = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
+    // Defence-in-depth: skip any file whose stem isn't a valid workflow id.
+    const stem = entry.slice(0, -5);
+    if (!WORKFLOW_ID_RE.test(stem)) continue;
     try {
       const content = await fs.readFile(path.join(dir, entry), "utf8");
       workflows.push(JSON.parse(content) as WorkflowState);
@@ -75,6 +81,10 @@ router.get("/workflows/active", async (_req: Request, res: Response) => {
 // GET /v1/workflows/:id — returns a specific workflow by id
 router.get("/workflows/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!WORKFLOW_ID_RE.test(id)) {
+    res.status(400).json({ error: "Invalid workflow id" });
+    return;
+  }
   const filePath = path.join(workflowsDir(), `${id}.json`);
   try {
     const content = await fs.readFile(filePath, "utf8");
@@ -88,6 +98,10 @@ router.get("/workflows/:id", async (req: Request, res: Response) => {
 // workflow state file changes (polls every 2 seconds).
 router.get("/workflows/:id/events", async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!WORKFLOW_ID_RE.test(id)) {
+    res.status(400).json({ error: "Invalid workflow id" });
+    return;
+  }
   const filePath = path.join(workflowsDir(), `${id}.json`);
 
   res.setHeader("Content-Type", "text/event-stream");

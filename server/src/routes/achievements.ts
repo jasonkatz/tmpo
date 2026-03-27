@@ -5,7 +5,7 @@ import os from "os";
 
 const router = Router();
 
-function achievementsPath(): string {
+export function achievementsPath(): string {
   // Mirrors AchievementStore::path() in Rust:
   //   parent of CadenceConfig::workflows_dir() / "achievements.json"
   const home = os.homedir();
@@ -16,13 +16,13 @@ function achievementsPath(): string {
   return path.join(configBase, "cadence", "achievements.json");
 }
 
-interface Achievement {
+export interface Achievement {
   kind: string;
   earned_at: string;
   workflow_id: string;
 }
 
-interface AchievementStore {
+export interface AchievementStore {
   achievements: Achievement[];
   workflows_completed: number;
 }

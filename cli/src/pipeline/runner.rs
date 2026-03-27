@@ -13,8 +13,8 @@ use crate::pipeline::stage::Stage;
 use crate::pipeline::state::WorkflowState;
 use crate::{achievements, betting};
 
-// Pipeline stages in order (for progress bar denominator).
-const STAGE_COUNT: u32 = 5;
+// Four distinct gate events: CI pass, review clean, E2E pass, final signoff.
+const STAGE_COUNT: u32 = 4;
 
 pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> Result<()> {
     let personality = config.fun.personality;
@@ -22,7 +22,14 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
     // Track whether the review that cleared us for verification had zero comments.
     let mut clean_review = false;
+
+    // Count gates, not attempts — each flag ensures a gate is counted at most once
+    // so rework iterations do not push the tally past STAGE_COUNT.
     let mut stages_done: u32 = 0;
+    let mut ci_gate_done = false;
+    let mut review_gate_done = false;
+    let mut e2e_gate_done = false;
+    let mut signoff_gate_done = false;
 
     loop {
         state.save()?;
@@ -122,7 +129,10 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                     checks::GhaStatus::Pending => unreachable!(),
                 }
 
-                stages_done += 1;
+                if !ci_gate_done {
+                    ci_gate_done = true;
+                    stages_done += 1;
+                }
                 if flair_on {
                     print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
                 }
@@ -152,7 +162,10 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                         personality.review_clean_message()
                     ));
                     clean_review = true;
-                    stages_done += 1;
+                    if !review_gate_done {
+                        review_gate_done = true;
+                        stages_done += 1;
+                    }
                     if flair_on {
                         print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
                     }
@@ -191,7 +204,10 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
                 if e2e_pass {
                     output::print_success("  E2E verified — behaviors match requirements");
-                    stages_done += 1;
+                    if !e2e_gate_done {
+                        e2e_gate_done = true;
+                        stages_done += 1;
+                    }
                     if flair_on {
                         print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
                     }
@@ -234,7 +250,10 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
                 output::print_success(&summary);
 
-                stages_done += 1;
+                if !signoff_gate_done {
+                    signoff_gate_done = true;
+                    stages_done += 1;
+                }
                 if flair_on {
                     print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
                     print_stage_banner(
