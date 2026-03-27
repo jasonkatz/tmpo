@@ -255,7 +255,11 @@ fn log_stage(state: &WorkflowState, msg: &str) {
 
 fn log_agent_done(role: AgentRole, text: &str) {
     let preview = if text.len() > 200 {
-        format!("{}...", &text[..200])
+        let mut end = 200;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &text[..end])
     } else {
         text.to_string()
     };
