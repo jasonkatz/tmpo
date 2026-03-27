@@ -100,7 +100,11 @@ pub fn review_prompt(state: &WorkflowState) -> String {
             -f commit_id=\"$(gh pr view {pr_num} --repo {repo} --json headRefOid --jq .headRefOid)\" \
             -F line=<line>\n\n\
          If GHA passes and implementation is correct: leave NO comments.\n\
-         If issues exist: one PR comment per blocking issue.",
+         If issues exist: one PR comment per blocking issue.\n\n\
+         End your response with this JSON block:\n\
+         ```json\n\
+         {{\"review_pass\": true | false, \"issues\": [\"...\"], \"summary\": \"...\"}}\n\
+         ```",
         pr_num = state.pr_number.unwrap_or(0),
         repo = state.repo,
         branch = state.branch,
@@ -118,19 +122,21 @@ pub fn e2e_prompt(state: &WorkflowState) -> String {
          {req_context}\n\n\
          TASK: {task}\n\n\
          Instructions:\n\
-         1. Read the requirements to understand expected behaviors\n\
-         2. Set up a fully running local environment (server, database, dependencies)\n\
-         3. Detect which surfaces exist (server/, cli/, client/) — only test present ones\n\
-         4. Validate real user journeys:\n\
+         1. Run `uvx showboat --help` to learn how to use showboat for evidence documentation\n\
+         2. Run `uvx rodney --help` to learn how to use rodney for browser automation and screenshots\n\
+         3. Read the requirements to understand expected behaviors\n\
+         4. Set up a fully running local environment (server, database, dependencies)\n\
+         5. Detect which surfaces exist (server/, cli/, client/) — only test present ones\n\
+         6. Validate real user journeys:\n\
             - API (if server/ exists): test actual HTTP endpoints with curl\n\
             - CLI (if cli/ exists): test CLI commands\n\
-            - UI (if client/ exists): start the app, use browser automation for screenshots\n\
-         5. Do NOT run unit tests — covered by CI\n\
-         6. Focus on proving actual behaviors work end-to-end\n\
-         7. Create a demo document summarizing evidence (commands, outputs, screenshots)\n\
-         8. Post the demo as a PR comment:\n\
-            gh pr comment {pr_num} --repo {repo} --body \"<demo content>\"\n\n\
-         This artifact is the primary evidence the human will review.",
+            - UI (if client/ exists): use rodney for browser automation and screenshots\n\
+         7. Do NOT run unit tests — covered by CI\n\
+         8. Focus on proving actual behaviors work end-to-end\n\
+         9. Use showboat to compile your evidence document\n\
+         10. Post the evidence as a PR comment:\n\
+            gh pr comment {pr_num} --repo {repo} --body \"<showboat evidence>\"\n\n\
+         The showboat document is the primary evidence the human will review.",
         pr_num = state.pr_number.unwrap_or(0),
         repo = state.repo,
         repo_dir = state.repo_dir.display(),
@@ -153,7 +159,9 @@ pub fn e2e_verify_prompt(state: &WorkflowState, artifact: &str) -> String {
          4. Check: are there behaviors NOT validated?\n\
          5. Check: did any validation steps fail?\n\n\
          E2E ARTIFACT:\n{artifact}\n\n\
-         OUTPUT FORMAT (mandatory — include this exact JSON block):\n\
+         Structure your response as a brief verification report with your insights.\n\
+         Do NOT post PR comments — the pipeline will post your verification.\n\n\
+         End with this JSON block (mandatory):\n\
          ```json\n\
          {{\n\
            \"e2e_pass\": true | false,\n\
@@ -174,20 +182,31 @@ pub fn update_pr_prompt(state: &WorkflowState) -> String {
     let req_context = requirements_context(state);
 
     format!(
-        "Update PR #{pr_num} on {repo} with a proper title and description.\n\n\
+        "Update PR #{pr_num} on {repo} with a current title and description.\n\n\
          TASK: {task}\n\
          BRANCH: {branch}\n\
+         ITERATION: {iter}/{max}\n\
          {req_context}\n\n\
          Instructions:\n\
          1. Read the PR diff: gh pr diff {pr_num} --repo {repo}\n\
-         2. Write a PR title (imperative mood, ~50 chars, capitalized, no period)\n\
-         3. Write a description covering: overview, key changes, testing done\n\
+         2. Write a title: concise imperative summary of what the PR does (~50 chars, capitalized, no period)\n\
+         3. Write the description using this template:\n\n\
+         ## Context\n\
+         One or two sentences: what this PR does and why.\n\n\
+         ## Changes\n\
+         - Bulleted list of key changes (3-6 items)\n\n\
+         ## Testing\n\
+         Brief note on how changes were verified.\n\n\
+         ---\n\
+         _cadence · iteration {{iter}}/{{max}}_\n\n\
          4. Update: gh pr edit {pr_num} --repo {repo} --title \"<title>\" --body \"<description>\"\n\n\
-         The description should help a human assess intent, key changes, and risk in under 2 minutes.",
+         Keep it brief — a human should grasp intent, scope, and risk at a glance.",
         pr_num = state.pr_number.unwrap_or(0),
         repo = state.repo,
         branch = state.branch,
         task = state.task,
+        iter = state.iteration,
+        max = state.max_iters,
     )
 }
 

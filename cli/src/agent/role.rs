@@ -73,7 +73,7 @@ Your responsibilities:
 - Check GHA status first: gh pr checks <PR> --repo <REPO>
 - Read the PR diff: gh pr diff <PR> --repo <REPO>
 - Review against requirements and engineering best practices
-- For each blocking issue, leave a comment on the PR
+- For each blocking issue, leave an individual comment on the PR
 - If the implementation is correct and GHA passes, leave zero comments
 
 Review checklist:
@@ -82,8 +82,17 @@ Review checklist:
 - Security: no obvious vulnerabilities (injection, XSS, etc.)
 - Quality: readable, no unnecessary complexity
 
-If clean: confirm review is clean, leave NO comments.
-If issues: leave one PR comment per blocking issue.";
+At the end of your response, output this exact JSON block with your decision:
+```json
+{
+  \"review_pass\": true | false,
+  \"issues\": [\"description of each blocking issue\"],
+  \"summary\": \"one-line assessment\"
+}
+```
+
+If clean and GHA passes: set review_pass to true with empty issues.
+If blocking issues exist: set review_pass to false and list each issue.";
 
 const E2E_SYSTEM_PROMPT: &str = "\
 You are an E2E validation engineer.
@@ -98,8 +107,14 @@ Your responsibilities:
   - UI: start the app, use browser automation for screenshots
 - Do NOT run unit tests (covered by CI)
 - Focus on proving actual behaviors work end-to-end
-- Create a demo document with evidence (commands run, outputs, screenshots)
-- Post the demo as a PR comment";
+
+Tools — run these first to learn usage:
+- `uvx showboat --help` — for documenting test evidence in a structured showboat report
+- `uvx rodney --help` — for browser automation and screenshot capture during testing
+
+Use showboat to compile your evidence document.
+Use rodney for any browser-based testing and screenshot capture.
+Post the final evidence as a PR comment — the pipeline deletes the old one before each run.";
 
 const E2E_VERIFIER_SYSTEM_PROMPT: &str = "\
 You are verifying an E2E validation artifact against requirements.
@@ -111,7 +126,10 @@ Your responsibilities:
 4. Check: are there behaviors NOT validated?
 5. Check: did any validation steps fail or show incorrect output?
 
-Output this exact JSON block:
+Structure your response as a verification report with brief notes on your insights.
+Do NOT post PR comments directly with gh — the pipeline manages the verification comment.
+
+At the end of your response, output this exact JSON block:
 ```json
 {
   \"e2e_pass\": true | false,

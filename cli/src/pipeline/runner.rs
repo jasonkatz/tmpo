@@ -76,8 +76,13 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
                 state.regression_context = None;
 
-                // Wait for GHA before review
+                // Update PR title and description to reflect current changes
                 let pr_num = state.pr_number.unwrap();
+                log_stage(state, "Updating PR title and description");
+                let update_prompt = prompts::update_pr_prompt(state);
+                let _ = agent.resume_send(&update_prompt).await?;
+
+                // Wait for GHA before review
                 log_stage(state, "Waiting for CI");
                 let gha_status = checks::wait_for_gha(
                     &state.repo,
@@ -114,29 +119,33 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                 let pr_num = state.pr_number.unwrap();
                 log_stage(state, &format!("Reviewing PR #{pr_num}"));
 
-                // Clear old review comments
-                pr::clear_review_comments(&state.repo, pr_num).await?;
-
                 let agent = make_agent(AgentRole::Reviewer, state, config);
                 let prompt = prompts::review_prompt(state);
                 let response = agent.send(&prompt).await?;
                 log_agent_done(AgentRole::Reviewer, &response.text);
 
-                // Let GitHub API settle
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                // Post reviewer summary as a managed comment (reset each iteration)
+                pr::upsert_comment_by_marker(
+                    &state.repo,
+                    pr_num,
+                    pr::MARKER_REVIEWER,
+                    &response.text,
+                )
+                .await?;
 
-                let comment_count = pr::get_comment_count(&state.repo, pr_num).await?;
-                output::print_success(&format!("  PR comments: {comment_count}"));
+                let review_pass = parse_review_result(&response.text);
 
-                if comment_count == 0 {
-                    output::print_success("  Review clean — 0 comments");
+                if review_pass {
+                    output::print_success("  Review passed");
                     state.transition(Stage::Verification, "review passed");
                 } else {
+                    // Collect individual comment text for dev feedback
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    let comment_count = pr::get_comment_count(&state.repo, pr_num).await?;
                     let comment_text = pr::get_comment_text(&state.repo, pr_num).await?;
-                    let feedback = prompts::dev_fix_review_prompt(state, comment_count, &comment_text);
-                    output::print_success(&format!(
-                        "  Review found {comment_count} issues, sending back to dev"
-                    ));
+                    let feedback =
+                        prompts::dev_fix_review_prompt(state, comment_count.max(1), &comment_text);
+                    output::print_success("  Review found issues, sending back to dev");
                     state.regress(Stage::Dev, feedback);
                 }
             }
@@ -145,10 +154,7 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                 let pr_num = state.pr_number.unwrap();
                 log_stage(state, "Running E2E validation");
 
-                // Delete existing showboat comment
-                pr::delete_showboat_comment(&state.repo, pr_num).await?;
-
-                // E2E agent runs journeys
+                // E2E agent runs journeys and posts evidence as a PR comment
                 let e2e_agent = make_agent(AgentRole::E2e, state, config);
                 let e2e_prompt = prompts::e2e_prompt(state);
                 let e2e_response = e2e_agent.send(&e2e_prompt).await?;
@@ -160,6 +166,15 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                 let verify_prompt = prompts::e2e_verify_prompt(state, &e2e_response.text);
                 let verify_response = verifier.send(&verify_prompt).await?;
                 log_agent_done(AgentRole::E2eVerifier, &verify_response.text);
+
+                // Post verifier's analysis as a managed comment (reset each iteration)
+                pr::upsert_comment_by_marker(
+                    &state.repo,
+                    pr_num,
+                    pr::MARKER_E2E_VERIFIER,
+                    &verify_response.text,
+                )
+                .await?;
 
                 let e2e_pass = parse_e2e_result(&verify_response.text);
 
@@ -174,12 +189,7 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
             }
 
             Stage::FinalSignoff => {
-                log_stage(state, "Updating PR and finalizing");
-
-                // Update PR title and description
-                let agent = make_agent(AgentRole::Dev, state, config);
-                let prompt = prompts::update_pr_prompt(state);
-                let _ = agent.resume_send(&prompt).await?;
+                log_stage(state, "Finalizing");
 
                 let pr_url = format!(
                     "https://github.com/{}/pull/{}",
@@ -250,8 +260,15 @@ fn log_agent_done(role: AgentRole, text: &str) {
 }
 
 fn parse_e2e_result(text: &str) -> bool {
-    // Look for ```json { "e2e_pass": true/false } ```
     let re = Regex::new(r#""e2e_pass"\s*:\s*(true|false)"#).unwrap();
+    if let Some(cap) = re.captures(text) {
+        return cap.get(1).map(|m| m.as_str()) == Some("true");
+    }
+    false
+}
+
+fn parse_review_result(text: &str) -> bool {
+    let re = Regex::new(r#""review_pass"\s*:\s*(true|false)"#).unwrap();
     if let Some(cap) = re.captures(text) {
         return cap.get(1).map(|m| m.as_str()) == Some("true");
     }
@@ -405,8 +422,38 @@ mod tests {
 
     #[test]
     fn parse_e2e_pass_inline() {
-        // Sometimes the agent doesn't use code fences
         let text = r#"The result is: "e2e_pass": true, everything looks good."#;
         assert!(parse_e2e_result(text));
+    }
+
+    #[test]
+    fn parse_review_pass_true() {
+        let text = r#"Review looks good.
+```json
+{
+  "review_pass": true,
+  "issues": [],
+  "summary": "Clean implementation"
+}
+```"#;
+        assert!(parse_review_result(text));
+    }
+
+    #[test]
+    fn parse_review_pass_false() {
+        let text = r#"Found issues.
+```json
+{
+  "review_pass": false,
+  "issues": ["Missing error handling"],
+  "summary": "Needs fixes"
+}
+```"#;
+        assert!(!parse_review_result(text));
+    }
+
+    #[test]
+    fn parse_review_pass_no_json() {
+        assert!(!parse_review_result("No JSON here"));
     }
 }

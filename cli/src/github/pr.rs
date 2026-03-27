@@ -2,6 +2,11 @@ use anyhow::{bail, Context, Result};
 use std::process::Stdio;
 use tokio::process::Command;
 
+#[allow(dead_code)]
+pub const MARKER_SHOWBOAT: &str = "<!-- cadence:showboat -->";
+pub const MARKER_REVIEWER: &str = "<!-- cadence:reviewer -->";
+pub const MARKER_E2E_VERIFIER: &str = "<!-- cadence:e2e-verifier -->";
+
 pub async fn create_or_get_pr(repo: &str, branch: &str, task: &str) -> Result<u64> {
     // Check for existing PR first
     if let Some(num) = get_pr_number(repo, branch).await? {
@@ -86,13 +91,13 @@ pub async fn get_comment_count(repo: &str, pr_num: u64) -> Result<u64> {
         .parse()
         .unwrap_or(0);
 
-    // Count issue comments (excluding showboat/e2e)
+    // Count issue comments (excluding cadence-managed comments)
     let issue_output = Command::new("gh")
         .args([
             "api",
             &format!("repos/{repo}/issues/{pr_num}/comments"),
             "--jq",
-            r#"[.[] | select(.body | test("Showboat|E2E [Vv]alidation|showboat") | not)] | length"#,
+            r#"[.[] | select(.body | test("<!-- cadence:|Showboat|E2E [Vv]alidation|showboat") | not)] | length"#,
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -126,7 +131,7 @@ pub async fn get_comment_text(repo: &str, pr_num: u64) -> Result<String> {
             "api",
             &format!("repos/{repo}/issues/{pr_num}/comments"),
             "--jq",
-            r#".[] | select(.body | test("Showboat|E2E [Vv]alidation|showboat") | not) | "[general] \(.body)"#,
+            r#".[] | select(.body | test("<!-- cadence:|Showboat|E2E [Vv]alidation|showboat") | not) | "[general] \(.body)"#,
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -138,14 +143,15 @@ pub async fn get_comment_text(repo: &str, pr_num: u64) -> Result<String> {
     Ok(text)
 }
 
+#[allow(dead_code)]
 pub async fn clear_review_comments(repo: &str, pr_num: u64) -> Result<()> {
-    // Delete issue comments (non-showboat)
+    // Delete issue comments (non-cadence-managed)
     let issue_output = Command::new("gh")
         .args([
             "api",
             &format!("repos/{repo}/issues/{pr_num}/comments"),
             "--jq",
-            r#".[] | select(.body | test("Showboat|E2E [Vv]alidation|showboat") | not) | .id"#,
+            r#".[] | select(.body | test("<!-- cadence:|Showboat|E2E [Vv]alidation|showboat") | not) | .id"#,
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -204,13 +210,14 @@ pub async fn post_pr_comment(repo: &str, pr_num: u64, body: &str) -> Result<()> 
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn delete_showboat_comment(repo: &str, pr_num: u64) -> Result<()> {
     let output = Command::new("gh")
         .args([
             "api",
             &format!("repos/{repo}/issues/{pr_num}/comments"),
             "--jq",
-            r#"[.[] | select(.body | test("Showboat|E2E [Vv]alidation|showboat"))] | .[0].id // empty"#,
+            r#"[.[] | select(.body | test("Showboat|E2E [Vv]alidation|showboat|<!-- cadence:showboat"))] | .[0].id // empty"#,
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -225,6 +232,104 @@ pub async fn delete_showboat_comment(repo: &str, pr_num: u64) -> Result<()> {
             .stderr(Stdio::null())
             .output()
             .await;
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub async fn delete_comment_by_marker(repo: &str, pr_num: u64, marker: &str) -> Result<()> {
+    let jq_filter = format!(
+        r#"[.[] | select(.body | contains("{marker}"))] | .[0].id // empty"#,
+        marker = marker
+    );
+    let output = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{repo}/issues/{pr_num}/comments"),
+            "--jq",
+            &jq_filter,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await?;
+
+    let cid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !cid.is_empty() {
+        let _ = Command::new("gh")
+            .args([
+                "api",
+                "-X",
+                "DELETE",
+                &format!("repos/{repo}/issues/comments/{cid}"),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .await;
+    }
+
+    Ok(())
+}
+
+pub async fn upsert_comment_by_marker(
+    repo: &str,
+    pr_num: u64,
+    marker: &str,
+    body: &str,
+) -> Result<()> {
+    let full_body = format!("{marker}\n\n{body}");
+
+    let jq_filter = format!(
+        r#"[.[] | select(.body | contains("{marker}"))] | .[0].id // empty"#,
+        marker = marker
+    );
+    let output = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{repo}/issues/{pr_num}/comments"),
+            "--jq",
+            &jq_filter,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await?;
+
+    let cid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if !cid.is_empty() {
+        Command::new("gh")
+            .args([
+                "api",
+                "-X",
+                "PATCH",
+                &format!("repos/{repo}/issues/comments/{cid}"),
+                "-f",
+                &format!("body={full_body}"),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .await
+            .context("updating PR comment")?;
+    } else {
+        Command::new("gh")
+            .args([
+                "pr",
+                "comment",
+                &pr_num.to_string(),
+                "--repo",
+                repo,
+                "--body",
+                &full_body,
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .await
+            .context("posting PR comment")?;
     }
 
     Ok(())
