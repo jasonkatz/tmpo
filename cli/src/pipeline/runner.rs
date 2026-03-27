@@ -4,14 +4,26 @@ use regex::Regex;
 use crate::agent::claude::ClaudeAgent;
 use crate::agent::role::AgentRole;
 use crate::config::CadenceConfig;
+use crate::flair::{print_confetti, print_progress_bar, print_sad_trombone, print_stage_banner};
 use crate::github::{checks, pr};
 use crate::notify;
 use crate::output;
 use crate::pipeline::prompts;
 use crate::pipeline::stage::Stage;
 use crate::pipeline::state::WorkflowState;
+use crate::{achievements, betting};
+
+// Pipeline stages in order (for progress bar denominator).
+const STAGE_COUNT: u32 = 5;
 
 pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> Result<()> {
+    let personality = config.fun.personality;
+    let flair_on = config.fun.flair;
+
+    // Track whether the review that cleared us for verification had zero comments.
+    let mut clean_review = false;
+    let mut stages_done: u32 = 0;
+
     loop {
         state.save()?;
 
@@ -23,6 +35,9 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
             ));
             state.transition(Stage::Failed, "max iterations exceeded");
             state.save()?;
+            if flair_on {
+                print_sad_trombone();
+            }
             notify_stage(state, config).await;
             bail!(
                 "Max iterations ({}) reached at stage {}",
@@ -42,17 +57,17 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
             }
 
             Stage::Dev => {
-                let agent = make_agent(AgentRole::Dev, state, config);
-
+                let stage_msg = personality.stage_message("Dev");
                 let prompt = if let Some(ref feedback) = state.regression_context {
-                    log_stage(state, &format!("Dev fixing issues (iter {})", state.iteration));
-                    // Determine if the feedback came from review or e2e
+                    let rework_msg = personality.rework_message(state.iteration);
+                    log_stage(state, &rework_msg);
                     feedback.clone()
                 } else {
-                    log_stage(state, "Dev implementing");
+                    log_stage(state, &stage_msg);
                     prompts::dev_implement_prompt(state)
                 };
 
+                let agent = make_agent(AgentRole::Dev, state, config);
                 let response = if state.iteration > 1 {
                     agent.resume_send(&prompt).await?
                 } else {
@@ -61,12 +76,10 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
                 log_agent_done(AgentRole::Dev, &response.text);
 
-                // Push changes
                 if config.defaults.git_push {
                     git_push(&state.repo_dir.to_string_lossy(), &state.branch).await?;
                 }
 
-                // Create or get PR
                 if state.pr_number.is_none() {
                     let pr_num =
                         pr::create_or_get_pr(&state.repo, &state.branch, &state.task).await?;
@@ -76,7 +89,6 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
                 state.regression_context = None;
 
-                // Wait for GHA before review
                 let pr_num = state.pr_number.unwrap();
                 log_stage(state, "Waiting for CI");
                 let gha_status = checks::wait_for_gha(
@@ -89,7 +101,10 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
                 match gha_status {
                     checks::GhaStatus::Success => {
-                        output::print_success("  CI passed");
+                        output::print_success(&format!(
+                            "  {}",
+                            personality.ci_pass_message()
+                        ));
                     }
                     checks::GhaStatus::Failure => {
                         let logs = checks::get_failure_logs(&state.repo, pr_num).await?;
@@ -107,14 +122,18 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                     checks::GhaStatus::Pending => unreachable!(),
                 }
 
+                stages_done += 1;
+                if flair_on {
+                    print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
+                }
                 state.transition(Stage::InReview, "CI passed, moving to review");
             }
 
             Stage::InReview => {
                 let pr_num = state.pr_number.unwrap();
-                log_stage(state, &format!("Reviewing PR #{pr_num}"));
+                let stage_msg = personality.stage_message("In Review");
+                log_stage(state, &format!("{stage_msg} — PR #{pr_num}"));
 
-                // Clear old review comments
                 pr::clear_review_comments(&state.repo, pr_num).await?;
 
                 let agent = make_agent(AgentRole::Reviewer, state, config);
@@ -122,18 +141,27 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                 let response = agent.send(&prompt).await?;
                 log_agent_done(AgentRole::Reviewer, &response.text);
 
-                // Let GitHub API settle
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                 let comment_count = pr::get_comment_count(&state.repo, pr_num).await?;
                 output::print_success(&format!("  PR comments: {comment_count}"));
 
                 if comment_count == 0 {
-                    output::print_success("  Review clean — 0 comments");
+                    output::print_success(&format!(
+                        "  {}",
+                        personality.review_clean_message()
+                    ));
+                    clean_review = true;
+                    stages_done += 1;
+                    if flair_on {
+                        print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
+                    }
                     state.transition(Stage::Verification, "review passed");
                 } else {
+                    clean_review = false;
                     let comment_text = pr::get_comment_text(&state.repo, pr_num).await?;
-                    let feedback = prompts::dev_fix_review_prompt(state, comment_count, &comment_text);
+                    let feedback =
+                        prompts::dev_fix_review_prompt(state, comment_count, &comment_text);
                     output::print_success(&format!(
                         "  Review found {comment_count} issues, sending back to dev"
                     ));
@@ -143,18 +171,16 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
             Stage::Verification => {
                 let pr_num = state.pr_number.unwrap();
-                log_stage(state, "Running E2E validation");
+                let stage_msg = personality.stage_message("Verification");
+                log_stage(state, &stage_msg);
 
-                // Delete existing showboat comment
                 pr::delete_showboat_comment(&state.repo, pr_num).await?;
 
-                // E2E agent runs journeys
                 let e2e_agent = make_agent(AgentRole::E2e, state, config);
                 let e2e_prompt = prompts::e2e_prompt(state);
                 let e2e_response = e2e_agent.send(&e2e_prompt).await?;
                 log_agent_done(AgentRole::E2e, &e2e_response.text);
 
-                // E2E verifier checks artifact
                 log_stage(state, "Verifying E2E results");
                 let verifier = make_agent(AgentRole::E2eVerifier, state, config);
                 let verify_prompt = prompts::e2e_verify_prompt(state, &e2e_response.text);
@@ -165,6 +191,10 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
 
                 if e2e_pass {
                     output::print_success("  E2E verified — behaviors match requirements");
+                    stages_done += 1;
+                    if flair_on {
+                        print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
+                    }
                     state.transition(Stage::FinalSignoff, "E2E passed");
                 } else {
                     output::print_success("  E2E failed — sending feedback to dev");
@@ -174,9 +204,9 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
             }
 
             Stage::FinalSignoff => {
-                log_stage(state, "Updating PR and finalizing");
+                let stage_msg = personality.stage_message("Final Signoff");
+                log_stage(state, &stage_msg);
 
-                // Update PR title and description
                 let agent = make_agent(AgentRole::Dev, state, config);
                 let prompt = prompts::update_pr_prompt(state);
                 let _ = agent.resume_send(&prompt).await?;
@@ -203,6 +233,27 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
                 );
 
                 output::print_success(&summary);
+
+                stages_done += 1;
+                if flair_on {
+                    print_progress_bar(stages_done, STAGE_COUNT, "pipeline stages");
+                    print_stage_banner(
+                        "Complete",
+                        &personality.stage_message("Complete"),
+                    );
+                }
+
+                // ASCII confetti on first-try pass
+                if flair_on && state.iteration <= 1 {
+                    print_confetti();
+                }
+
+                // Award and show achievements
+                award_achievements(state, clean_review);
+
+                // Settle the iteration prediction
+                settle_bet(state);
+
                 state.transition(Stage::Complete, "ready for human review");
             }
 
@@ -213,6 +264,34 @@ pub async fn run_pipeline(state: &mut WorkflowState, config: &CadenceConfig) -> 
     state.save()?;
     notify_stage(state, config).await;
     Ok(())
+}
+
+fn award_achievements(state: &WorkflowState, clean_review: bool) {
+    let Ok(mut store) = crate::achievements::AchievementStore::load() else {
+        return;
+    };
+    let earned = achievements::evaluate(
+        &mut store,
+        &state.id,
+        state.iteration,
+        state.max_iters,
+        clean_review,
+    );
+    store.print_new(&earned);
+    let _ = store.save();
+}
+
+fn settle_bet(state: &WorkflowState) {
+    let Ok(mut ledger) = betting::BettingLedger::load() else {
+        return;
+    };
+    ledger.settle(&state.id, state.iteration);
+    if let Some(bet) = ledger.bets.iter().find(|b| b.workflow_id == state.id) {
+        if bet.actual_iters.is_some() {
+            betting::print_result(bet.predicted_iters, state.iteration);
+        }
+    }
+    let _ = ledger.save();
 }
 
 fn make_agent(
@@ -235,9 +314,7 @@ fn log_stage(state: &WorkflowState, msg: &str) {
         .pr_number
         .map(|n| format!(" PR #{n} ·"))
         .unwrap_or_default();
-    eprintln!(
-        "\n\x1b[1;34m[{now}] [cadence]\x1b[0m{pr_info} {msg}"
-    );
+    eprintln!("\n\x1b[1;34m[{now}] [cadence]\x1b[0m{pr_info} {msg}");
 }
 
 fn log_agent_done(role: AgentRole, text: &str) {
@@ -250,7 +327,6 @@ fn log_agent_done(role: AgentRole, text: &str) {
 }
 
 fn parse_e2e_result(text: &str) -> bool {
-    // Look for ```json { "e2e_pass": true/false } ```
     let re = Regex::new(r#""e2e_pass"\s*:\s*(true|false)"#).unwrap();
     if let Some(cap) = re.captures(text) {
         return cap.get(1).map(|m| m.as_str()) == Some("true");
@@ -268,7 +344,6 @@ async fn ensure_branch(repo_dir: &str, branch: &str) -> Result<()> {
     let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     if current != branch {
-        // Check if branch exists locally
         let exists = tokio::process::Command::new("git")
             .args(["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")])
             .current_dir(repo_dir)
@@ -308,7 +383,6 @@ async fn ensure_gitignore(repo_dir: &str) -> Result<()> {
 }
 
 async fn git_push(repo_dir: &str, branch: &str) -> Result<()> {
-    // Stage all changes
     let status = tokio::process::Command::new("git")
         .args(["add", "-A"])
         .current_dir(repo_dir)
@@ -316,10 +390,9 @@ async fn git_push(repo_dir: &str, branch: &str) -> Result<()> {
         .await?;
 
     if !status.success() {
-        return Ok(()); // nothing to add
+        return Ok(());
     }
 
-    // Check if there are staged changes
     let diff = tokio::process::Command::new("git")
         .args(["diff", "--cached", "--quiet"])
         .current_dir(repo_dir)
@@ -327,17 +400,15 @@ async fn git_push(repo_dir: &str, branch: &str) -> Result<()> {
         .await?;
 
     if diff.success() {
-        return Ok(()); // no changes
+        return Ok(());
     }
 
-    // Commit
     let _ = tokio::process::Command::new("git")
         .args(["commit", "-m", "Apply pipeline iteration changes"])
         .current_dir(repo_dir)
         .output()
         .await;
 
-    // Push
     let _ = tokio::process::Command::new("git")
         .args(["push", "origin", branch])
         .current_dir(repo_dir)
@@ -405,7 +476,6 @@ mod tests {
 
     #[test]
     fn parse_e2e_pass_inline() {
-        // Sometimes the agent doesn't use code fences
         let text = r#"The result is: "e2e_pass": true, everything looks good."#;
         assert!(parse_e2e_result(text));
     }

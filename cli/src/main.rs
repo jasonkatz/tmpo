@@ -1,10 +1,13 @@
 use clap::{Parser, Subcommand};
 use std::process;
 
+mod achievements;
 mod agent;
+mod betting;
 mod commands;
 mod config;
 mod error;
+mod flair;
 mod github;
 mod notify;
 mod output;

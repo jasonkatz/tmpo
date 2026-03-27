@@ -1,6 +1,8 @@
 import { useAuth, withAuthenticationRequired } from "../hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import { useApi } from "../hooks/useApi";
+import { AgentTheater } from "../components/AgentTheater";
+import { AchievementBadges } from "../components/AchievementBadges";
 
 function DashboardPage() {
   const { user, logout } = useAuth();
@@ -16,11 +18,15 @@ function DashboardPage() {
       <nav className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <h1 className="text-xl font-semibold">Dashboard</h1>
+            <h1 className="text-xl font-semibold text-gray-900">
+              🎭 Cadence
+            </h1>
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-600">{user?.email}</span>
               <button
-                onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+                onClick={() =>
+                  logout({ logoutParams: { returnTo: window.location.origin } })
+                }
                 className="text-sm text-gray-600 hover:text-gray-900"
               >
                 Sign Out
@@ -31,9 +37,18 @@ function DashboardPage() {
       </nav>
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-lg font-medium mb-4">User Info</h2>
+        <div className="px-4 sm:px-0 space-y-6">
+          {/* Live Agent Theater */}
+          <AgentTheater />
+
+          {/* Achievement Badges */}
+          <AchievementBadges earned={[]} />
+
+          {/* User Info */}
+          <div className="bg-white shadow rounded-2xl p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Account
+            </h2>
             {isLoading ? (
               <p className="text-gray-500">Loading...</p>
             ) : serverUser ? (
@@ -66,7 +81,10 @@ function DashboardPage() {
 export default withAuthenticationRequired(DashboardPage, {
   onRedirecting: () => (
     <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      <div
+        role="status"
+        className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"
+      />
     </div>
   ),
 });

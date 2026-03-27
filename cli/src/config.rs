@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::flair::Personality;
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CadenceConfig {
@@ -10,8 +12,8 @@ pub struct CadenceConfig {
     pub defaults: DefaultsConfig,
     pub agents: AgentsConfig,
     pub timeouts: TimeoutConfig,
+    pub fun: FunConfig,
 }
-
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NotifyConfig {
@@ -70,6 +72,28 @@ impl Default for TimeoutConfig {
             e2e_secs: 900,
             gha_secs: 600,
             gha_poll_secs: 30,
+        }
+    }
+}
+
+/// Configuration for fun and motivational features.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct FunConfig {
+    /// Team personality affecting status message tone.
+    pub personality: Personality,
+    /// Enable ASCII animations (progress bars, confetti, sad trombone).
+    pub flair: bool,
+    /// Enable iteration count prediction before pipeline starts.
+    pub betting: bool,
+}
+
+impl Default for FunConfig {
+    fn default() -> Self {
+        Self {
+            personality: Personality::Default,
+            flair: true,
+            betting: true,
         }
     }
 }
@@ -151,6 +175,14 @@ mod tests {
     }
 
     #[test]
+    fn default_fun_config() {
+        let config = CadenceConfig::default();
+        assert_eq!(config.fun.personality, Personality::Default);
+        assert!(config.fun.flair);
+        assert!(config.fun.betting);
+    }
+
+    #[test]
     fn parse_full_toml() {
         let toml_str = r#"
 [notify]
@@ -178,6 +210,11 @@ agent_secs = 1800
 e2e_secs = 600
 gha_secs = 300
 gha_poll_secs = 15
+
+[fun]
+personality = "pirate"
+flair = false
+betting = false
 "#;
         let config: CadenceConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.defaults.max_iters, 5);
@@ -188,6 +225,9 @@ gha_poll_secs = 15
         assert_eq!(config.agents.e2e.model.as_deref(), Some("haiku"));
         assert_eq!(config.timeouts.gha_poll_secs, 15);
         assert!(config.notify.is_some());
+        assert_eq!(config.fun.personality, Personality::Pirate);
+        assert!(!config.fun.flair);
+        assert!(!config.fun.betting);
     }
 
     #[test]

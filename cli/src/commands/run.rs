@@ -3,6 +3,7 @@ use chrono::Utc;
 use std::path::PathBuf;
 
 use crate::agent::claude;
+use crate::betting::{self, Bet};
 use crate::config::CadenceConfig;
 use crate::pipeline::stage::Stage;
 use crate::pipeline::state::{SessionIds, WorkflowState};
@@ -57,14 +58,10 @@ pub async fn run(args: RunArgs, config: &CadenceConfig) -> Result<()> {
         bail!("{} is not a git repository", repo_dir.display());
     }
 
-    let branch = args
-        .branch
-        .unwrap_or_else(|| format!("dev/{id}"));
-
+    let branch = args.branch.unwrap_or_else(|| format!("dev/{id}"));
     let max_iters = args.max_iters.unwrap_or(config.defaults.max_iters);
     let now = Utc::now();
 
-    // claude --session-id requires valid UUIDs
     let sessions = SessionIds {
         dev: uuid::Uuid::new_v4().to_string(),
         review: uuid::Uuid::new_v4().to_string(),
@@ -117,7 +114,6 @@ pub async fn run(args: RunArgs, config: &CadenceConfig) -> Result<()> {
         pid: Some(std::process::id()),
     };
 
-    // Apply model override
     let config = if let Some(model) = args.model {
         let mut c = CadenceConfig::load()?;
         c.defaults.model = model;
@@ -129,12 +125,38 @@ pub async fn run(args: RunArgs, config: &CadenceConfig) -> Result<()> {
     eprintln!("\n\x1b[1;34m╔══════════════════════════════════════╗\x1b[0m");
     eprintln!("\x1b[1;34m║  Cadence — Multi-Agent SDLC Pipeline ║\x1b[0m");
     eprintln!("\x1b[1;34m╚══════════════════════════════════════╝\x1b[0m\n");
-    eprintln!("  ID:       {id}");
-    eprintln!("  Task:     {}", state.task);
-    eprintln!("  Repo:     {}", state.repo);
-    eprintln!("  Branch:   {}", state.branch);
-    eprintln!("  Max iter: {}", state.max_iters);
+    eprintln!("  ID:          {id}");
+    eprintln!("  Task:        {}", state.task);
+    eprintln!("  Repo:        {}", state.repo);
+    eprintln!("  Branch:      {}", state.branch);
+    eprintln!("  Max iter:    {}", state.max_iters);
+    eprintln!("  Personality: {}", config.fun.personality.label());
     eprintln!();
+
+    // Iteration betting pool: record prediction before the pipeline starts
+    if config.fun.betting {
+        let predicted = betting::predict_iterations(&state.task);
+
+        if let Ok(mut ledger) = betting::BettingLedger::load() {
+            // Show historical accuracy before placing a new bet
+            let accuracy_note = match (ledger.exact_accuracy_pct(), ledger.close_accuracy_pct()) {
+                (Some(exact), Some(close)) => {
+                    format!("  Historical accuracy: {exact:.0}% exact, {close:.0}% within ±1\n")
+                }
+                _ => String::new(),
+            };
+            betting::print_prediction(&id, &state.task, predicted, &accuracy_note);
+
+            ledger.place(Bet {
+                workflow_id: id.clone(),
+                task: state.task.clone(),
+                predicted_iters: predicted,
+                actual_iters: None,
+                placed_at: now,
+            });
+            let _ = ledger.save();
+        }
+    }
 
     pipeline::run_pipeline(&mut state, &config).await
 }
