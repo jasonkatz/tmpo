@@ -8,42 +8,42 @@ Add the E2E agent, E2E verifier, and signoff step to complete the full pipeline.
 
 ### E2E Agent
 
-1. The `e2e` step invokes the E2E agent with the proposal and acceptance criteria. The agent sets up a local environment, runs real user journeys, and produces an evidence artifact. The step passes if the agent exits successfully.
+1. After the review step passes, the e2e step transitions to `running`. The E2E agent sets up a local environment, runs real user journeys against the implementation, and produces an evidence artifact. If the agent exits successfully, the step transitions to `passed`.
 
-2. The E2E agent is executed via pi agent core with the E2E system prompt, allowed tools (Bash, Edit, Read, Write, Glob, Grep), and model. The agent's prompt and response are recorded as a Run.
+2. After the e2e step runs, `GET /v1/workflows/:id/runs` includes a run with `agent_role: "e2e"` containing the evidence output in the `response` field.
 
-3. The E2E agent posts its evidence as a PR comment using the tools specified in the system prompt (showboat for evidence compilation).
+3. The E2E agent posts its evidence as a comment on the workflow's GitHub PR.
 
 ### E2E Verifier
 
-4. The `e2e_verify` step invokes the E2E verifier agent with the proposal and the evidence artifact from the E2E step. The agent outputs a structured JSON verdict. If `e2e_pass` is `true`, the step passes. If `false`, the step fails with the verifier's feedback as failure context.
+4. After the e2e step passes, the e2e_verify step transitions to `running`. The verifier evaluates the evidence artifact against the proposal's acceptance criteria and outputs a structured JSON verdict. If `e2e_pass` is `true`, the step transitions to `passed`. If `false`, the step transitions to `failed` with a `detail` containing the verifier's feedback — which criteria passed, failed, or had missing evidence.
 
-5. The E2E verifier agent is executed via pi agent core with the E2E verifier system prompt, allowed tools (Bash, Read, Glob, Grep — read-only), and model. The agent's prompt and response are recorded as a Run.
+5. After the e2e_verify step runs, `GET /v1/workflows/:id/runs` includes a run with `agent_role: "e2e_verifier"` containing the structured verdict in the `response` field.
 
 ### Signoff
 
-6. The `signoff` step is a bookkeeping step that marks the workflow as `complete`. No agent is invoked. The workflow status transitions from `running` to `complete`.
+6. After the e2e_verify step passes, the signoff step transitions directly to `passed`. `GET /v1/workflows/:id` then shows the workflow with status `complete`. No agent is invoked for signoff.
 
 ### Regression from E2E Failures
 
-7. When the `e2e` step fails, the workflow regresses to dev with the E2E failure output as context. When the `e2e_verify` step fails, the workflow regresses to dev with the verifier's feedback as context.
+7. When the e2e step fails, `GET /v1/workflows/:id` shows `iteration` incremented and new steps starting from `dev`. The new dev run's `prompt` includes the E2E failure output as context.
 
-8. The dev agent's prompt for E2E regressions includes the specific evidence gaps or failures identified by the E2E agent or verifier, so the dev agent knows what behavior to fix.
+8. When the e2e_verify step fails, the same regression occurs. The new dev run's `prompt` includes the verifier's specific feedback — which criteria failed and what evidence was missing — so the dev agent knows what behavior to fix.
 
 ### CLI
 
-9. `cadence run` prints the final status when the workflow completes: the PR URL and a confirmation that all checks passed. On failure after max iterations, it prints the last failure context.
+9. When a workflow reaches `complete`, `cadence run` prints the PR URL and a confirmation that all stages passed. On `failed` after max iterations, it prints the last failure context and which step caused the final failure.
 
 ### Web Client
 
-10. The workflow detail page shows all steps including E2E, E2E verify, and signoff with their statuses and timing. The full step timeline is visible for each iteration.
+10. The workflow detail page shows all seven step types (plan through signoff) with their statuses and timing for each iteration.
 
-11. When a workflow reaches `complete` status, the detail page shows a success state with the PR link prominently displayed.
+11. When a workflow reaches `complete`, the detail page shows a success state with the PR link prominently displayed.
 
 ## Technical Considerations
 
-- **E2E environment**: The E2E agent needs to set up a running local environment of the target project. This requires the cloned repo and the ability to run build/start commands. The agent's working directory should be the same clone used by the dev agent (or a fresh one with the latest branch state).
-- **Evidence artifact passing**: The E2E agent produces an evidence artifact (via showboat). The verifier needs access to this artifact. Options: (a) store the evidence as a Run response and pass it to the verifier's prompt, (b) store it as a file in a shared location, or (c) read it from the PR comment. Option (a) is simplest and keeps everything in the database.
+- **E2E environment**: The E2E agent needs to set up a running local environment of the target project. This requires the cloned repo and the ability to run build/start commands. The agent's working directory should be the same clone used by the dev agent (or a fresh one with the latest branch state). The E2E agent uses read-write tools (Bash, Edit, Read, Write, Glob, Grep). The E2E verifier uses read-only tools (Bash, Read, Glob, Grep).
+- **Evidence artifact passing**: The E2E agent produces an evidence artifact (via showboat). The verifier needs access to this. The simplest approach is to pass the E2E run's response as input to the verifier's prompt.
 - **E2E tools**: The E2E system prompt references `uvx showboat` and `uvx rodney`. These tools need to be available in the agent's environment. Ensure the server's agent execution environment has `uvx` available.
 - **Timeout considerations**: E2E steps may take longer than planning or review. The timeout should be configurable per role, with a higher default for E2E (e.g., 600 seconds).
 - **Full regression coverage**: With this phase, all four failure-triggering steps (ci, review, e2e, e2e_verify) can cause regression. The failure context format should be consistent so the dev agent can handle any type of feedback.
