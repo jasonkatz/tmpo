@@ -36,6 +36,25 @@ export const settingsService = {
     return { github_token: maskToken(githubToken) };
   },
 
+  async getDecryptedToken(userId: string): Promise<string> {
+    const settings = await settingsDao.findByUserId(userId);
+
+    if (
+      !settings ||
+      !settings.github_token_encrypted ||
+      !settings.github_token_iv ||
+      !settings.github_token_tag
+    ) {
+      throw new Error("GitHub token not configured");
+    }
+
+    return decrypt(
+      settings.github_token_encrypted,
+      settings.github_token_iv,
+      settings.github_token_tag
+    );
+  },
+
   async hasGithubToken(userId: string): Promise<boolean> {
     const settings = await settingsDao.findByUserId(userId);
     return !!(

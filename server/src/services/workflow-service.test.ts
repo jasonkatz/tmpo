@@ -65,9 +65,20 @@ const mockHasGithubToken = mock<(userId: string) => Promise<boolean>>(() =>
   Promise.resolve(true)
 );
 
+const mockGetDecryptedToken = mock<(userId: string) => Promise<string>>(() =>
+  Promise.resolve("ghp_testtoken")
+);
+const mockSettingsGet = mock(() => Promise.resolve({ github_token: null }));
+const mockSettingsUpdate = mock(() =>
+  Promise.resolve({ github_token: "ghp_****" })
+);
+
 mock.module("./settings-service", () => ({
   settingsService: {
     hasGithubToken: mockHasGithubToken,
+    getDecryptedToken: mockGetDecryptedToken,
+    get: mockSettingsGet,
+    update: mockSettingsUpdate,
   },
 }));
 

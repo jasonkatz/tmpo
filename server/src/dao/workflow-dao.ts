@@ -107,4 +107,44 @@ export const workflowDao = {
     );
     return result.rows[0] || null;
   },
+
+  async findPending(): Promise<Workflow | null> {
+    const result = await query<Workflow>(
+      `SELECT * FROM workflows WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1`
+    );
+    return result.rows[0] || null;
+  },
+
+  async updateProposal(
+    id: string,
+    proposal: string
+  ): Promise<Workflow | null> {
+    const result = await query<Workflow>(
+      `UPDATE workflows SET proposal = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+      [proposal, id]
+    );
+    return result.rows[0] || null;
+  },
+
+  async updateError(
+    id: string,
+    error: string
+  ): Promise<Workflow | null> {
+    const result = await query<Workflow>(
+      `UPDATE workflows SET status = 'failed', error = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+      [error, id]
+    );
+    return result.rows[0] || null;
+  },
+
+  async updateIteration(
+    id: string,
+    iteration: number
+  ): Promise<Workflow | null> {
+    const result = await query<Workflow>(
+      `UPDATE workflows SET iteration = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+      [iteration, id]
+    );
+    return result.rows[0] || null;
+  },
 };

@@ -86,6 +86,61 @@ impl ApiClient {
         Ok(response.json().await?)
     }
 
+    /// Stream SSE events from a path, calling the handler for each event.
+    /// Returns when the stream ends or the handler returns false.
+    pub async fn stream_sse<F>(
+        &self,
+        path: &str,
+        mut handler: F,
+    ) -> anyhow::Result<()>
+    where
+        F: FnMut(&str, &str) -> bool, // (event_type, data) -> continue?
+    {
+        let token = Self::get_token()?;
+
+        let response = self
+            .client
+            .get(format!("{}{}", self.base_url, path))
+            .bearer_auth(&token)
+            .header("Accept", "text/event-stream")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Request failed ({}): {}", status, text);
+        }
+
+        let stream = response.bytes_stream();
+        use futures_util::StreamExt;
+        use tokio::io::AsyncBufReadExt;
+        let reader = tokio_util::io::StreamReader::new(
+            stream.map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
+        );
+        let mut lines = reader.lines();
+
+        let mut current_event = String::new();
+        let mut current_data = String::new();
+
+        while let Some(line) = lines.next_line().await? {
+            if line.starts_with("event: ") {
+                current_event = line[7..].to_string();
+            } else if line.starts_with("data: ") {
+                current_data = line[6..].to_string();
+            } else if line.is_empty() && !current_event.is_empty() {
+                let should_continue = handler(&current_event, &current_data);
+                current_event.clear();
+                current_data.clear();
+                if !should_continue {
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn put_json<B: Serialize, T: DeserializeOwned>(
         &self,
         path: &str,

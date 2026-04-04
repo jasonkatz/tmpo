@@ -104,6 +104,34 @@ describe("settingsService", () => {
     });
   });
 
+  describe("getDecryptedToken", () => {
+    it("should return the raw decrypted token", async () => {
+      const { encrypt } = await import("../utils/encryption");
+      const { encrypted, iv, tag } = encrypt("ghp_secrettoken99");
+
+      mockFindByUserId.mockResolvedValue({
+        id: "s1",
+        user_id: "user-1",
+        github_token_encrypted: encrypted,
+        github_token_iv: iv,
+        github_token_tag: tag,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const result = await settingsService.getDecryptedToken("user-1");
+      expect(result).toBe("ghp_secrettoken99");
+    });
+
+    it("should throw when no token is configured", async () => {
+      mockFindByUserId.mockResolvedValue(null);
+
+      await expect(
+        settingsService.getDecryptedToken("user-1")
+      ).rejects.toThrow("GitHub token not configured");
+    });
+  });
+
   describe("hasGithubToken", () => {
     it("should return false when no settings exist", async () => {
       mockFindByUserId.mockResolvedValue(null);
