@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import type { Step } from "./step-dao";
+import { createStepDao } from "./step-dao";
+import type { QueryFn } from "../db";
 
 const STEP_TYPES = ["plan", "dev", "ci", "review", "e2e", "e2e_verify", "signoff"] as const;
 
@@ -17,21 +19,21 @@ function makeStep(overrides?: Partial<Step>): Step {
   };
 }
 
-// Mock the db module
 const mockQuery = mock<(...args: unknown[]) => Promise<{ rows: unknown[] }>>(() =>
   Promise.resolve({ rows: [] })
 );
 
-mock.module("../db", () => ({
-  query: mockQuery,
-}));
-
-const { stepDao } = await import("./step-dao");
+function makeDeps() {
+  return createStepDao(mockQuery as unknown as QueryFn);
+}
 
 describe("stepDao", () => {
+  let stepDao: ReturnType<typeof createStepDao>;
+
   beforeEach(() => {
     mockQuery.mockReset();
     mockQuery.mockResolvedValue({ rows: [] });
+    stepDao = makeDeps();
   });
 
   describe("createIterationSteps", () => {

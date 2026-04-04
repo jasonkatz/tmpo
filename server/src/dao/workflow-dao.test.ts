@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import type { Workflow } from "./workflow-dao";
+import { createWorkflowDao } from "./workflow-dao";
+import type { QueryFn } from "../db";
 
 function makeWorkflow(overrides?: Partial<Workflow>): Workflow {
   return {
@@ -25,16 +27,17 @@ const mockQuery = mock<(...args: unknown[]) => Promise<{ rows: unknown[] }>>(() 
   Promise.resolve({ rows: [] })
 );
 
-mock.module("../db", () => ({
-  query: mockQuery,
-}));
-
-const { workflowDao } = await import("./workflow-dao");
+function makeDeps() {
+  return createWorkflowDao(mockQuery as unknown as QueryFn);
+}
 
 describe("workflowDao", () => {
+  let workflowDao: ReturnType<typeof createWorkflowDao>;
+
   beforeEach(() => {
     mockQuery.mockReset();
     mockQuery.mockResolvedValue({ rows: [] });
+    workflowDao = makeDeps();
   });
 
   describe("findPending", () => {

@@ -1,4 +1,4 @@
-import { query } from "../db";
+import { query, type QueryFn } from "../db";
 
 export interface Step {
   id: string;
@@ -11,7 +11,8 @@ export interface Step {
   detail: string | null;
 }
 
-export const stepDao = {
+export function createStepDao(q: QueryFn) {
+  return {
   async findByWorkflowId(
     workflowId: string,
     filters?: { iteration?: number }
@@ -26,7 +27,7 @@ export const stepDao = {
     }
 
     const where = conditions.join(" AND ");
-    const result = await query<Step>(
+    const result = await q<Step>(
       `SELECT * FROM steps WHERE ${where} ORDER BY iteration ASC, type ASC`,
       values
     );
@@ -36,7 +37,7 @@ export const stepDao = {
   async findLatestIterationByWorkflowId(
     workflowId: string
   ): Promise<Step[]> {
-    const result = await query<Step>(
+    const result = await q<Step>(
       `SELECT * FROM steps WHERE workflow_id = $1
        AND iteration = (SELECT MAX(iteration) FROM steps WHERE workflow_id = $1)
        ORDER BY type ASC`,
@@ -58,7 +59,7 @@ export const stepDao = {
       .join(", ");
     const params = types.flatMap((type) => [workflowId, iteration, type]);
 
-    const result = await query<Step>(
+    const result = await q<Step>(
       `INSERT INTO steps (workflow_id, iteration, type)
        VALUES ${values}
        RETURNING *`,
@@ -88,10 +89,13 @@ export const stepDao = {
     }
 
     params.push(stepId);
-    const result = await query<Step>(
+    const result = await q<Step>(
       `UPDATE steps SET ${setClauses.join(", ")} WHERE id = $${idx} RETURNING *`,
       params
     );
     return result.rows[0] || null;
   },
-};
+  };
+}
+
+export const stepDao = createStepDao(query);

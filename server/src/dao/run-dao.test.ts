@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import type { Run } from "./run-dao";
+import { createRunDao } from "./run-dao";
+import type { QueryFn } from "../db";
 
 function makeRun(overrides?: Partial<Run>): Run {
   return {
@@ -21,16 +23,17 @@ const mockQuery = mock<(...args: unknown[]) => Promise<{ rows: unknown[] }>>(() 
   Promise.resolve({ rows: [] })
 );
 
-mock.module("../db", () => ({
-  query: mockQuery,
-}));
-
-const { runDao } = await import("./run-dao");
+function makeDeps() {
+  return createRunDao(mockQuery as unknown as QueryFn);
+}
 
 describe("runDao", () => {
+  let runDao: ReturnType<typeof createRunDao>;
+
   beforeEach(() => {
     mockQuery.mockReset();
     mockQuery.mockResolvedValue({ rows: [] });
+    runDao = makeDeps();
   });
 
   describe("create", () => {
