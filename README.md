@@ -32,6 +32,9 @@ A production-ready full-stack web application with:
 ## Quick Start
 
 ```bash
+# Install root dependencies (sets up pre-commit hooks)
+bun install
+
 # Start the database
 docker-compose up -d
 
