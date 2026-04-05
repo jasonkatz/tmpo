@@ -151,6 +151,11 @@ function makeDeps() {
     Promise.resolve("abc123sha")
   );
 
+  const mockPostPrComment = mock(
+    (_params: { token: string; repo: string; prNumber: number; body: string }) =>
+      Promise.resolve()
+  );
+
   const mockUpdateIteration = mock((_id: string, _iter: number) =>
     Promise.resolve(makeWorkflow({ iteration: 1 }))
   );
@@ -184,6 +189,7 @@ function makeDeps() {
     runReviewAgent: mockRunReviewAgent,
     getPrDiff: mockGetPrDiff,
     getHeadSha: mockGetHeadSha,
+    postPrComment: mockPostPrComment,
   };
 
   return {
@@ -206,6 +212,7 @@ function makeDeps() {
       runReviewAgent: mockRunReviewAgent,
       getPrDiff: mockGetPrDiff,
       getHeadSha: mockGetHeadSha,
+      postPrComment: mockPostPrComment,
     },
   };
 }
@@ -857,6 +864,74 @@ describe("workflow engine", () => {
       expect(mocks.runUpdateResult).toHaveBeenCalledTimes(3);
       const reviewUpdateArg = mocks.runUpdateResult.mock.calls[2][1] as Record<string, unknown>;
       expect(reviewUpdateArg.response).toBe('{"review_pass": true}');
+    });
+
+    // --- PR comment tests ---
+
+    it("should post a PR comment after review passes", async () => {
+      const { deps, mocks } = makeDeps();
+      const wf = makeWorkflow();
+
+      mocks.runReviewAgent.mockResolvedValue({
+        reviewPass: true,
+        verdict: '{"review_pass": true}',
+        exitCode: 0,
+        durationSecs: 25,
+        response: "All criteria met.",
+      });
+
+      await processWorkflow(wf, TEST_TOKEN, deps);
+
+      expect(mocks.postPrComment).toHaveBeenCalledTimes(1);
+      const args = mocks.postPrComment.mock.calls[0][0];
+      expect(args.repo).toBe("acme/webapp");
+      expect(args.prNumber).toBe(42);
+      expect(args.body).toContain("passed");
+    });
+
+    it("should post a PR comment after review fails (before regression)", async () => {
+      const { deps, mocks } = makeDeps();
+      const wf = makeWorkflow();
+
+      let reviewCallCount = 0;
+      mocks.runReviewAgent.mockImplementation(() => {
+        reviewCallCount++;
+        if (reviewCallCount === 1) {
+          return Promise.resolve({
+            reviewPass: false,
+            verdict: '{"review_pass": false, "blocking_issues": ["no tests"]}',
+            exitCode: 0,
+            durationSecs: 20,
+            response: "Missing tests.",
+          });
+        }
+        return Promise.resolve({
+          reviewPass: true,
+          verdict: '{"review_pass": true}',
+          exitCode: 0,
+          durationSecs: 25,
+          response: "LGTM",
+        });
+      });
+
+      await processWorkflow(wf, TEST_TOKEN, deps);
+
+      // Should have 2 comments: one for fail, one for pass
+      expect(mocks.postPrComment).toHaveBeenCalledTimes(2);
+      const firstArgs = mocks.postPrComment.mock.calls[0][0];
+      expect(firstArgs.body).toContain("failed");
+    });
+
+    it("should not fail workflow if PR comment fails to post", async () => {
+      const { deps, mocks } = makeDeps();
+      const wf = makeWorkflow();
+
+      mocks.postPrComment.mockRejectedValue(new Error("GitHub API 403"));
+
+      await processWorkflow(wf, TEST_TOKEN, deps);
+
+      // Workflow should still complete successfully
+      expect(mocks.updateError).not.toHaveBeenCalled();
     });
   });
 });

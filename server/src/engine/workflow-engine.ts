@@ -28,6 +28,7 @@ export interface EngineDeps {
   runReviewAgent: typeof defaultRunReviewAgent;
   getPrDiff: (token: string, repo: string, prNumber: number) => Promise<string>;
   getHeadSha: (token: string, repo: string, branch: string) => Promise<string>;
+  postPrComment: typeof defaultGithubService.postPrComment;
 }
 
 async function defaultGetPrDiff(token: string, repo: string, prNumber: number): Promise<string> {
@@ -77,6 +78,7 @@ const defaultDeps: EngineDeps = {
   runReviewAgent: defaultRunReviewAgent,
   getPrDiff: defaultGetPrDiff,
   getHeadSha: defaultGetHeadSha,
+  postPrComment: defaultGithubService.postPrComment.bind(defaultGithubService),
 };
 
 export async function processWorkflow(
@@ -369,6 +371,12 @@ export async function processWorkflow(
     durationSecs: reviewResult.durationSecs,
   });
 
+  // Post review comment to PR
+  await postReviewComment(
+    deps, githubToken, workflow.repo, currentWorkflow.pr_number!,
+    reviewResult, workflow.iteration
+  );
+
   if (!reviewResult.reviewPass) {
     const detail = reviewResult.verdict || "Review failed";
     await stepDao.updateStatus(reviewStep.id, "failed", detail);
@@ -401,6 +409,27 @@ export async function processWorkflow(
     workflowId: workflow.id,
     data: { status: "running", pr_number: currentWorkflow.pr_number },
   });
+}
+
+async function postReviewComment(
+  deps: EngineDeps,
+  token: string,
+  repo: string,
+  prNumber: number,
+  reviewResult: { reviewPass: boolean; verdict: string },
+  iteration: number
+): Promise<void> {
+  try {
+    const status = reviewResult.reviewPass ? "passed" : "failed";
+    const header = `**Review ${status}** (iteration ${iteration})`;
+    const body = `${header}\n\n\`\`\`json\n${reviewResult.verdict}\n\`\`\``;
+    await deps.postPrComment({ token, repo, prNumber, body });
+  } catch (error) {
+    // Non-fatal — don't fail the workflow if we can't post a comment
+    logger.warn("Failed to post review comment", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function regress(
@@ -621,6 +650,12 @@ async function processRegressionIteration(
     exitCode: reviewResult.exitCode,
     durationSecs: reviewResult.durationSecs,
   });
+
+  // Post review comment to PR
+  await postReviewComment(
+    deps, githubToken, workflow.repo, workflow.pr_number!,
+    reviewResult, workflow.iteration
+  );
 
   if (!reviewResult.reviewPass) {
     const detail = reviewResult.verdict || "Review failed";
