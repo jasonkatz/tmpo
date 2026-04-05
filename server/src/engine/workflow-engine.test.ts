@@ -151,6 +151,10 @@ function makeDeps() {
     Promise.resolve("abc123sha")
   );
 
+  const mockGeneratePrDescription = mock((_task: string, _proposal: string) =>
+    Promise.resolve({ title: "Add login page", body: "Implements login with email/password." })
+  );
+
   const mockPostPrComment = mock(
     (_params: { token: string; repo: string; prNumber: number; body: string }) =>
       Promise.resolve()
@@ -190,6 +194,7 @@ function makeDeps() {
     getPrDiff: mockGetPrDiff,
     getHeadSha: mockGetHeadSha,
     postPrComment: mockPostPrComment,
+    generatePrDescription: mockGeneratePrDescription,
   };
 
   return {
@@ -213,6 +218,7 @@ function makeDeps() {
       getPrDiff: mockGetPrDiff,
       getHeadSha: mockGetHeadSha,
       postPrComment: mockPostPrComment,
+      generatePrDescription: mockGeneratePrDescription,
     },
   };
 }
@@ -486,33 +492,21 @@ describe("workflow engine", () => {
       expect(runningCalls).toHaveLength(4); // plan + dev + ci + review
     });
 
-    it("should use PR title from task (first 72 chars)", async () => {
-      const { deps, mocks } = makeDeps();
-      const longTask =
-        "Implement a comprehensive authentication system with OAuth2 support, multi-factor authentication, and session management";
-      const wf = makeWorkflow({ task: longTask });
-
-      await processWorkflow(wf, TEST_TOKEN, deps);
-
-      const prArgs = mocks.createPullRequest.mock.calls[0][0];
-      expect(prArgs.title.length).toBeLessThanOrEqual(72);
-    });
-
-    it("should use proposal as PR body", async () => {
+    it("should use generated PR title and body", async () => {
       const { deps, mocks } = makeDeps();
       const wf = makeWorkflow();
 
-      mocks.runPlanner.mockResolvedValue({
-        proposal: "## Summary\nDetailed plan here",
-        exitCode: 0,
-        durationSecs: 30,
-        response: "output",
+      mocks.generatePrDescription.mockResolvedValue({
+        title: "Add user authentication",
+        body: "Implements OAuth2 login flow with session management.",
       });
 
       await processWorkflow(wf, TEST_TOKEN, deps);
 
+      expect(mocks.generatePrDescription).toHaveBeenCalledTimes(1);
       const prArgs = mocks.createPullRequest.mock.calls[0][0];
-      expect(prArgs.body).toContain("## Summary\nDetailed plan here");
+      expect(prArgs.title).toBe("Add user authentication");
+      expect(prArgs.body).toBe("Implements OAuth2 login flow with session management.");
     });
 
     it("should record dev agent run with prompt, response, exit_code, duration", async () => {

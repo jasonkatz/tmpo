@@ -7,6 +7,7 @@ import { runDevAgent as defaultRunDevAgent } from "./dev-agent";
 import { pollCiStatus as defaultPollCiStatus } from "./ci-poller";
 import { runReviewAgent as defaultRunReviewAgent } from "./review-agent";
 import { githubService as defaultGithubService } from "../services/github-service";
+import { generatePrDescription as defaultGeneratePrDescription } from "./pr-description";
 import { settingsService as defaultSettingsService } from "../services/settings-service";
 import { logger } from "../utils/logger";
 
@@ -29,6 +30,7 @@ export interface EngineDeps {
   getPrDiff: (token: string, repo: string, prNumber: number) => Promise<string>;
   getHeadSha: (token: string, repo: string, branch: string) => Promise<string>;
   postPrComment: typeof defaultGithubService.postPrComment;
+  generatePrDescription: typeof defaultGeneratePrDescription;
 }
 
 async function defaultGetPrDiff(token: string, repo: string, prNumber: number): Promise<string> {
@@ -79,6 +81,7 @@ const defaultDeps: EngineDeps = {
   getPrDiff: defaultGetPrDiff,
   getHeadSha: defaultGetHeadSha,
   postPrComment: defaultGithubService.postPrComment.bind(defaultGithubService),
+  generatePrDescription: defaultGeneratePrDescription,
 };
 
 export async function processWorkflow(
@@ -260,8 +263,10 @@ export async function processWorkflow(
 
   // --- Create PR (first iteration only) ---
   if (currentWorkflow.pr_number === null) {
-    const prTitle = workflow.task.substring(0, 72);
-    const prBody = currentWorkflow.proposal || "";
+    const { title: prTitle, body: prBody } = await deps.generatePrDescription(
+      workflow.task,
+      currentWorkflow.proposal || ""
+    );
 
     try {
       const pr = await createPullRequest({
