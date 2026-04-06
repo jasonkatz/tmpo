@@ -173,4 +173,56 @@ describe("githubService", () => {
       expect(result.number).toBe(10);
     });
   });
+
+  describe("postPrComment", () => {
+    it("should post a comment to the PR via the issues API", async () => {
+      const mockFetch = mock(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ id: 1 }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+      );
+      const service = createGithubService({
+        fetch: mockFetch as unknown as typeof fetch,
+      });
+
+      await service.postPrComment({
+        token: "ghp_test123",
+        repo: "acme/webapp",
+        prNumber: 42,
+        body: "Review passed. LGTM!",
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toBe(
+        "https://api.github.com/repos/acme/webapp/issues/42/comments"
+      );
+      expect(opts.method).toBe("POST");
+      const body = JSON.parse(opts.body as string);
+      expect(body.body).toBe("Review passed. LGTM!");
+    });
+
+    it("should throw on non-2xx response", async () => {
+      const mockFetch = mock(() =>
+        Promise.resolve(
+          new Response("Not Found", { status: 404 })
+        )
+      );
+      const service = createGithubService({
+        fetch: mockFetch as unknown as typeof fetch,
+      });
+
+      await expect(
+        service.postPrComment({
+          token: "ghp_test123",
+          repo: "acme/webapp",
+          prNumber: 999,
+          body: "test",
+        })
+      ).rejects.toThrow("GitHub API error posting PR comment");
+    });
+  });
 });

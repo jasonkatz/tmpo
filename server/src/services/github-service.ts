@@ -19,6 +19,13 @@ const defaultDeps: GithubServiceDeps = {
   fetch: globalThis.fetch,
 };
 
+export interface PostPrCommentParams {
+  token: string;
+  repo: string;
+  prNumber: number;
+  body: string;
+}
+
 export function createGithubService(deps: GithubServiceDeps = defaultDeps) {
   const headers = (token: string) => ({
     Authorization: `Bearer ${token}`,
@@ -28,6 +35,24 @@ export function createGithubService(deps: GithubServiceDeps = defaultDeps) {
   });
 
   return {
+    async postPrComment(params: PostPrCommentParams): Promise<void> {
+      const { token, repo, prNumber, body } = params;
+      const res = await deps.fetch(
+        `https://api.github.com/repos/${repo}/issues/${prNumber}/comments`,
+        {
+          method: "POST",
+          headers: headers(token),
+          body: JSON.stringify({ body }),
+        }
+      );
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(
+          `GitHub API error posting PR comment (${res.status}): ${errBody}`
+        );
+      }
+    },
+
     async createPullRequest(params: CreatePrParams): Promise<CreatePrResult> {
       const { token, repo, head, title, body } = params;
 
