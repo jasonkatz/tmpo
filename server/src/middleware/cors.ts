@@ -3,7 +3,7 @@ import { config } from "../config";
 
 const allowedOrigins =
   config.NODE_ENV === "production"
-    ? ["https://yourapp.com"]
+    ? ["https://tmpo.sh", "https://www.tmpo.sh"]
     : ["http://localhost:5173", "http://localhost:3000"];
 
 export const corsMiddleware = cors({
