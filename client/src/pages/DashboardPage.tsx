@@ -2,6 +2,7 @@ import { useAuth, withAuthenticationRequired } from "../hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import { useApi } from "../hooks/useApi";
 import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
 
 interface WorkflowListItem {
   id: string;
@@ -28,6 +29,9 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-yellow-100 text-yellow-800",
 };
 
+type SortField = "status" | "created_at";
+type SortDirection = "asc" | "desc";
+
 function formatAge(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -47,10 +51,41 @@ function DashboardPage() {
   const api = useApi();
   const navigate = useNavigate();
 
+  const [sortField, setSortField] = useState<SortField>("created_at");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+
   const { data, isLoading } = useQuery({
     queryKey: ["workflows"],
     queryFn: () => api.get<WorkflowListResponse>("/v1/workflows"),
+    refetchInterval: 10000,
   });
+
+  const sortedWorkflows = useMemo(() => {
+    if (!data?.workflows) return [];
+    return [...data.workflows].sort((a, b) => {
+      let cmp: number;
+      if (sortField === "status") {
+        cmp = a.status.localeCompare(b.status);
+      } else {
+        cmp = a.created_at.localeCompare(b.created_at);
+      }
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+  }, [data?.workflows, sortField, sortDirection]);
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDirection(field === "created_at" ? "desc" : "asc");
+    }
+  }
+
+  function sortIndicator(field: SortField) {
+    if (sortField !== field) return "";
+    return sortDirection === "asc" ? " \u25B2" : " \u25BC";
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -92,8 +127,14 @@ function DashboardPage() {
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h2 className="text-lg font-medium">Workflows</h2>
+              <Link
+                to="/workflows/new"
+                className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
+              >
+                New Workflow
+              </Link>
             </div>
             {isLoading ? (
               <div className="p-6 text-center text-gray-500">Loading...</div>
@@ -111,8 +152,11 @@ function DashboardPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Repo
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      onClick={() => toggleSort("status")}
+                    >
+                      Status{sortIndicator("status")}
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       PR
@@ -120,13 +164,16 @@ function DashboardPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Iteration
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Created
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      onClick={() => toggleSort("created_at")}
+                    >
+                      Created{sortIndicator("created_at")}
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {data.workflows.map((w) => (
+                  {sortedWorkflows.map((w) => (
                     <tr
                       key={w.id}
                       onClick={() => navigate(`/workflows/${w.id}`)}

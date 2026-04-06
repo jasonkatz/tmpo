@@ -16,6 +16,19 @@ interface Step {
   detail: string | null;
 }
 
+interface Run {
+  id: string;
+  step_id: string;
+  workflow_id: string;
+  agent_role: string;
+  iteration: number;
+  prompt: string;
+  response: string | null;
+  exit_code: number | null;
+  duration_secs: number | null;
+  created_at: string;
+}
+
 interface WorkflowDetail {
   id: string;
   task: string;
@@ -53,6 +66,14 @@ const STEP_LABELS: Record<string, string> = {
   signoff: "Sign-off",
 };
 
+const STEP_TYPE_TO_AGENT_ROLE: Record<string, string> = {
+  plan: "planner",
+  dev: "dev",
+  review: "reviewer",
+  e2e: "e2e",
+  e2e_verify: "e2e_verifier",
+};
+
 function formatDuration(start: string | null, end: string | null): string {
   if (!start) return "-";
   const startDate = new Date(start);
@@ -66,13 +87,24 @@ function formatDuration(start: string | null, end: string | null): string {
   return `${mins}m ${secs}s`;
 }
 
+function formatRunDuration(secs: number | null): string {
+  if (secs == null) return "-";
+  if (secs < 60) return `${Math.round(secs)}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = Math.round(secs % 60);
+  return `${mins}m ${rem}s`;
+}
+
 function ExpandableDetail({ detail }: { detail: string }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="mt-1">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded(!expanded);
+        }}
         className="text-xs text-red-600 hover:text-red-800 cursor-pointer"
       >
         {expanded ? "Hide detail" : "Show detail"}
@@ -86,26 +118,123 @@ function ExpandableDetail({ detail }: { detail: string }) {
   );
 }
 
-function StepRow({ step }: { step: Step }) {
-  return (
-    <div className="py-2 px-3 rounded bg-gray-50">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span
-            className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[step.status] || "bg-gray-100 text-gray-800"}`}
-          >
-            {step.status}
-          </span>
-          <span className="text-sm font-medium text-gray-900">
-            {STEP_LABELS[step.type] || step.type}
-          </span>
-        </div>
-        <div className="text-sm text-gray-500">
-          {formatDuration(step.started_at, step.finished_at)}
-        </div>
+function RunLogs({
+  workflowId,
+  step,
+}: {
+  workflowId: string;
+  step: Step;
+}) {
+  const api = useApi();
+  const agentRole = STEP_TYPE_TO_AGENT_ROLE[step.type];
+
+  const { data: runs, isLoading } = useQuery({
+    queryKey: ["runs", workflowId, step.type, step.iteration],
+    queryFn: () => {
+      let path = `/v1/workflows/${workflowId}/runs?iteration=${step.iteration}`;
+      if (agentRole) path += `&agent_role=${agentRole}`;
+      return api.get<Run[]>(path);
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="py-2 px-3 text-sm text-gray-500">Loading runs...</div>
+    );
+  }
+
+  if (!runs || runs.length === 0) {
+    return (
+      <div className="py-2 px-3 text-sm text-gray-500">
+        No runs recorded for this step.
       </div>
-      {step.status === "failed" && step.detail && (
-        <ExpandableDetail detail={step.detail} />
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {runs.map((run) => (
+        <div
+          key={run.id}
+          className="border border-gray-200 rounded p-3 bg-white"
+        >
+          <div className="flex items-center gap-4 text-xs text-gray-500 mb-2">
+            <span className="font-medium text-gray-700">{run.agent_role}</span>
+            <span>Iteration {run.iteration}</span>
+            <span>
+              Exit: {run.exit_code != null ? run.exit_code : "-"}
+            </span>
+            <span>Duration: {formatRunDuration(run.duration_secs)}</span>
+          </div>
+          <div className="space-y-2">
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-1">
+                Prompt
+              </div>
+              <pre className="text-xs text-gray-800 bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap max-h-96 overflow-y-auto">
+                {run.prompt}
+              </pre>
+            </div>
+            {run.response && (
+              <div>
+                <div className="text-xs font-medium text-gray-500 mb-1">
+                  Response
+                </div>
+                <pre className="text-xs text-gray-800 bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap max-h-96 overflow-y-auto">
+                  {run.response}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StepRow({
+  step,
+  isExpanded,
+  onToggle,
+  workflowId,
+}: {
+  step: Step;
+  isExpanded: boolean;
+  onToggle: () => void;
+  workflowId: string;
+}) {
+  return (
+    <div>
+      <div
+        className="py-2 px-3 rounded bg-gray-50 cursor-pointer hover:bg-gray-100"
+        onClick={onToggle}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400">
+              {isExpanded ? "\u25BC" : "\u25B6"}
+            </span>
+            <span
+              className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[step.status] || "bg-gray-100 text-gray-800"}`}
+            >
+              {step.status}
+            </span>
+            <span className="text-sm font-medium text-gray-900">
+              {STEP_LABELS[step.type] || step.type}
+            </span>
+          </div>
+          <div className="text-sm text-gray-500">
+            {formatDuration(step.started_at, step.finished_at)}
+          </div>
+        </div>
+        {step.status === "failed" && step.detail && (
+          <ExpandableDetail detail={step.detail} />
+        )}
+      </div>
+      {isExpanded && (
+        <div className="mt-2 ml-6 mb-2">
+          <RunLogs workflowId={workflowId} step={step} />
+        </div>
       )}
     </div>
   );
@@ -126,6 +255,7 @@ function WorkflowDetailPage() {
   const { user, logout } = useAuth();
   const api = useApi();
   const queryClient = useQueryClient();
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
 
   const { data: workflow, isLoading } = useQuery({
     queryKey: ["workflow", id],
@@ -286,7 +416,17 @@ function WorkflowDetailPage() {
                 </h3>
                 <div className="space-y-3">
                   {iterSteps.map((step) => (
-                    <StepRow key={step.id} step={step} />
+                    <StepRow
+                      key={step.id}
+                      step={step}
+                      workflowId={workflow.id}
+                      isExpanded={expandedStepId === step.id}
+                      onToggle={() =>
+                        setExpandedStepId(
+                          expandedStepId === step.id ? null : step.id
+                        )
+                      }
+                    />
                   ))}
                 </div>
               </div>
