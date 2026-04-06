@@ -109,3 +109,17 @@ pub struct WorkflowDetail {
     pub workflow: Workflow,
     pub steps: Vec<Step>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Run {
+    pub id: String,
+    pub step_id: String,
+    pub workflow_id: String,
+    pub agent_role: String,
+    pub iteration: i64,
+    pub prompt: String,
+    pub response: Option<String>,
+    pub exit_code: Option<i64>,
+    pub duration_secs: Option<f64>,
+    pub created_at: String,
+}

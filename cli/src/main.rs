@@ -6,7 +6,7 @@ mod commands;
 mod config;
 mod output;
 
-use commands::{cancel, config as config_cmd, list, login, logout, proposal, run, status, whoami};
+use commands::{cancel, config as config_cmd, list, login, logout, logs, proposal, run, status, whoami};
 
 #[derive(Parser)]
 #[command(name = "cadence")]
@@ -77,6 +77,20 @@ enum Commands {
         /// Workflow ID
         workflow_id: String,
     },
+    /// Show run logs for a workflow
+    Logs {
+        /// Workflow ID
+        workflow_id: String,
+        /// Filter by agent role (planner, dev, reviewer, e2e, e2e_verifier)
+        #[arg(short, long)]
+        agent: Option<String>,
+        /// Filter by iteration number
+        #[arg(short, long)]
+        iteration: Option<i64>,
+        /// Show full prompt and response (no truncation)
+        #[arg(long)]
+        full: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -141,6 +155,12 @@ async fn main() {
         Commands::Status { workflow_id } => status::run(&ctx, &workflow_id).await,
         Commands::Cancel { workflow_id } => cancel::run(&ctx, &workflow_id).await,
         Commands::Proposal { workflow_id } => proposal::run(&ctx, &workflow_id).await,
+        Commands::Logs {
+            workflow_id,
+            agent,
+            iteration,
+            full,
+        } => logs::run(&ctx, &workflow_id, agent.as_deref(), iteration, full).await,
     };
 
     if let Err(err) = result {
