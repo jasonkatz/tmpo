@@ -552,6 +552,12 @@ async function processE2eThroughSignoff(
     durationSecs: verifyResult.durationSecs,
   });
 
+  // Post E2E verify assessment as PR comment
+  await postE2eVerifyComment(
+    deps, githubToken, workflow.repo, workflow.pr_number!,
+    verifyResult, workflow.iteration
+  );
+
   if (!verifyResult.e2ePass) {
     const detail = verifyResult.verdict || "E2E verification failed";
     await stepDao.updateStatus(e2eVerifyStep.id, "failed", detail);
@@ -614,6 +620,30 @@ async function postE2eComment(
     await deps.postPrComment({ token, repo, prNumber, body });
   } catch (error) {
     logger.warn("Failed to post E2E comment", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function postE2eVerifyComment(
+  deps: EngineDeps,
+  token: string,
+  repo: string,
+  prNumber: number,
+  verifyResult: { e2ePass: boolean; response: string },
+  iteration: number
+): Promise<void> {
+  try {
+    const icon = verifyResult.e2ePass ? "\u2705" : "\u274c";
+    const status = verifyResult.e2ePass ? "passed" : "failed";
+    const header = `${icon} **E2E Verification ${status}** (iteration ${iteration})`;
+    const summary = verifyResult.response
+      .replace(/```json[\s\S]*?```/g, "")
+      .trim();
+    const body = summary ? `${header}\n\n${summary}` : header;
+    await deps.postPrComment({ token, repo, prNumber, body });
+  } catch (error) {
+    logger.warn("Failed to post E2E verify comment", {
       error: error instanceof Error ? error.message : String(error),
     });
   }

@@ -54,11 +54,14 @@ describe("e2e-agent", () => {
       expect(prompt).toContain("user journey");
     });
 
-    it("should reference showboat for evidence capture", () => {
+    it("should require showboat for evidence capture", () => {
       const wf = makeWorkflow();
       const prompt = buildE2ePrompt(wf);
 
-      expect(prompt).toContain("showboat");
+      expect(prompt).toContain("uvx showboat");
+      expect(prompt).toContain("MUST");
+      expect(prompt).toContain("showboat init");
+      expect(prompt).toContain("showboat exec");
     });
 
     it("should reference rodney for browser automation", () => {
@@ -68,11 +71,12 @@ describe("e2e-agent", () => {
       expect(prompt).toContain("rodney");
     });
 
-    it("should instruct evidence output format", () => {
+    it("should instruct outputting evidence.md contents", () => {
       const wf = makeWorkflow();
       const prompt = buildE2ePrompt(wf);
 
-      expect(prompt).toContain("evidence");
+      expect(prompt).toContain("evidence.md");
+      expect(prompt).toContain("posted as a comment");
     });
 
     it("should handle null proposal gracefully", () => {

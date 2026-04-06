@@ -910,8 +910,8 @@ describe("workflow engine", () => {
 
       await processWorkflow(wf, TEST_TOKEN, deps);
 
-      // Review comment + E2E comment
-      expect(mocks.postPrComment).toHaveBeenCalledTimes(2);
+      // Review comment + E2E evidence comment + E2E verify comment
+      expect(mocks.postPrComment).toHaveBeenCalledTimes(3);
       const args = mocks.postPrComment.mock.calls[0][0];
       expect(args.repo).toBe("acme/webapp");
       expect(args.prNumber).toBe(42);
@@ -945,8 +945,8 @@ describe("workflow engine", () => {
 
       await processWorkflow(wf, TEST_TOKEN, deps);
 
-      // Should have 3 comments: review fail + review pass + e2e pass
-      expect(mocks.postPrComment).toHaveBeenCalledTimes(3);
+      // review fail + review pass + e2e evidence + e2e verify = 4
+      expect(mocks.postPrComment).toHaveBeenCalledTimes(4);
       const firstArgs = mocks.postPrComment.mock.calls[0][0];
       expect(firstArgs.body).toContain("Review failed");
     });
@@ -988,27 +988,21 @@ describe("workflow engine", () => {
       expect(e2eCreateArg.agentRole).toBe("e2e");
     });
 
-    it("should post e2e evidence as PR comment", async () => {
+    it("should post 3 PR comments: review, e2e evidence, e2e verification", async () => {
       const { deps, mocks } = makeDeps();
       const wf = makeWorkflow();
 
-      mocks.runE2eAgent.mockResolvedValue({
-        e2ePass: true,
-        evidence: "All journeys passed.",
-        exitCode: 0,
-        durationSecs: 120,
-        response: "E2E evidence output",
-      });
-
       await processWorkflow(wf, TEST_TOKEN, deps);
 
-      // Should have review comment + e2e comment
-      const commentCalls = mocks.postPrComment.mock.calls;
-      const e2eComment = commentCalls.find(
-        (c: unknown[]) => (c[0] as Record<string, unknown>).body &&
-          ((c[0] as Record<string, unknown>).body as string).includes("E2E")
+      // 3 comments on happy path: review + e2e evidence + e2e verify
+      expect(mocks.postPrComment).toHaveBeenCalledTimes(3);
+
+      const bodies = mocks.postPrComment.mock.calls.map(
+        (c: unknown[]) => (c[0] as Record<string, unknown>).body as string
       );
-      expect(e2eComment).toBeTruthy();
+      expect(bodies[0]).toContain("Review");
+      expect(bodies[1]).toContain("E2E");
+      expect(bodies[2]).toContain("E2E Verification");
     });
 
     it("should execute e2e_verify step after e2e passes", async () => {
