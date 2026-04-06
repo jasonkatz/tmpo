@@ -1,5 +1,5 @@
 [package]
-name = "tmpo"
+name = "tmpo-cli"
 version = "0.1.0"
 edition = "2021"
 description = "CLI for the tmpo autonomous software delivery pipeline"
