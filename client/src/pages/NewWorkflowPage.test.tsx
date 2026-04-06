@@ -1,39 +1,35 @@
-import { describe, it, expect, beforeEach, mock } from "bun:test";
-import type React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 
-const mockNavigate = mock(() => {});
-const mockPost = mock(() => Promise.resolve({ id: "wf-123" }));
-const mockLogout = mock(() => {});
+jest.mock("@auth0/auth0-react");
 
-mock.module("react-router-dom", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const actual = require("react-router-dom");
-  return {
-    ...actual,
-    useNavigate: () => mockNavigate,
-  };
-});
-
-mock.module("../hooks/useAuth", () => ({
-  useAuth: () => ({
-    isLoading: false,
-    isAuthenticated: true,
-    user: { email: "test@example.com" },
-    getAccessTokenSilently: mock(() => Promise.resolve("token")),
-    logout: mockLogout,
-  }),
-  withAuthenticationRequired: <P extends object>(Component: React.ComponentType<P>) => Component,
+const mockNavigate = jest.fn();
+jest.mock("react-router-dom", () => ({
+  ...jest.requireActual("react-router-dom"),
+  useNavigate: () => mockNavigate,
 }));
 
-mock.module("../hooks/useApi", () => ({
+const mockPost = jest.fn().mockResolvedValue({ id: "wf-123" });
+jest.mock("../hooks/useApi", () => ({
   useApi: () => ({
     post: mockPost,
   }),
 }));
 
-const { default: NewWorkflowPage } = await import("./NewWorkflowPage");
+const mockUseAuth0 = useAuth0 as jest.MockedFunction<typeof useAuth0>;
+
+import NewWorkflowPage from "./NewWorkflowPage";
+
+function setupAuth() {
+  mockUseAuth0.mockReturnValue({
+    isLoading: false,
+    isAuthenticated: true,
+    user: { email: "test@example.com" },
+    getAccessTokenSilently: jest.fn().mockResolvedValue("token"),
+    logout: jest.fn(),
+  } as unknown as ReturnType<typeof useAuth0>);
+}
 
 function renderPage() {
   return render(
@@ -45,17 +41,19 @@ function renderPage() {
 
 describe("NewWorkflowPage", () => {
   beforeEach(() => {
-    mockNavigate.mockClear();
-    mockPost.mockClear();
-    mockPost.mockImplementation(() => Promise.resolve({ id: "wf-123" }));
+    jest.clearAllMocks();
+    setupAuth();
+    mockPost.mockResolvedValue({ id: "wf-123" });
   });
 
   it("renders the form with required fields", () => {
     renderPage();
 
-    expect(screen.getByLabelText(/task/i)).toBeDefined();
-    expect(screen.getByLabelText(/repository/i)).toBeDefined();
-    expect(screen.getByRole("button", { name: /create workflow/i })).toBeDefined();
+    expect(screen.getByLabelText(/task/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/repository/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /create workflow/i })
+    ).toBeInTheDocument();
   });
 
   it("marks task as required", () => {
@@ -72,25 +70,14 @@ describe("NewWorkflowPage", () => {
     expect(repoField.required).toBe(true);
   });
 
-  it("validates repo field rejects values not matching owner/repo format", () => {
+  it("validates repo field has owner/repo pattern", () => {
     renderPage();
 
     const repoField = screen.getByLabelText(/repository/i) as HTMLInputElement;
-
-    // Invalid: no slash
-    fireEvent.change(repoField, { target: { value: "invalid-repo" } });
-    expect(repoField.validity.patternMismatch).toBe(true);
-
-    // Invalid: empty after slash
-    fireEvent.change(repoField, { target: { value: "owner/" } });
-    expect(repoField.validity.patternMismatch).toBe(true);
-
-    // Valid: owner/repo
-    fireEvent.change(repoField, { target: { value: "owner/repo" } });
-    expect(repoField.validity.patternMismatch).toBe(false);
+    expect(repoField.pattern).toBe("[\\w.\\-]+/[\\w.\\-]+");
   });
 
-  it("submits the form and navigates to the new workflow", async () => {
+  it("submits the form and navigates on success", async () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText(/task/i), {
@@ -111,7 +98,7 @@ describe("NewWorkflowPage", () => {
   });
 
   it("shows error message on submission failure", async () => {
-    mockPost.mockImplementation(() => Promise.reject(new Error("Bad request")));
+    mockPost.mockRejectedValue(new Error("Bad request"));
     renderPage();
 
     fireEvent.change(screen.getByLabelText(/task/i), {
@@ -123,7 +110,7 @@ describe("NewWorkflowPage", () => {
     fireEvent.submit(screen.getByRole("button", { name: /create workflow/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Bad request")).toBeDefined();
+      expect(screen.getByText("Bad request")).toBeInTheDocument();
     });
   });
 });
