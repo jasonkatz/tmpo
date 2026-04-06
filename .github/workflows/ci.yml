@@ -114,7 +114,7 @@ jobs:
 
   deploy-client:
     name: Deploy Client
-    needs: [server, client, cli]
+    needs: [deploy-server]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
