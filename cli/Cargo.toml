@@ -9,6 +9,10 @@ homepage = "https://tmpo.sh"
 keywords = ["cli", "automation", "delivery", "pipeline"]
 categories = ["command-line-utilities", "development-tools"]
 
+[[bin]]
+name = "tmpo"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
