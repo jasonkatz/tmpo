@@ -7,6 +7,8 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z
     .string()
     .default("dev-encryption-key-32-bytes-long!"),
+  ALLOWED_ORIGINS: z.string().optional(),
+  BASE_URL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
