@@ -138,10 +138,7 @@ impl ApiClient {
 
     /// Check if the daemon is reachable by attempting a GET /health request.
     pub async fn is_reachable(&self) -> bool {
-        match self.request("GET", "/health", None).await {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        self.request("GET", "/health", None).await.is_ok()
     }
 
     // --- Private helpers ---
