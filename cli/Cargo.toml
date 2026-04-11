@@ -1,11 +1,12 @@
 [package]
-name = "tmpo-cli"
+name = "tmpo"
 version = "0.1.0"
 edition = "2021"
 description = "CLI for the tmpo autonomous software delivery pipeline"
 license = "MIT"
 repository = "https://github.com/jasonkatz/tmpo"
 homepage = "https://tmpo.sh"
+readme = "../README.md"
 keywords = ["cli", "automation", "delivery", "pipeline"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -31,3 +32,4 @@ http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 http = "1"
 bytes = "1"
+toml = "0.8"
