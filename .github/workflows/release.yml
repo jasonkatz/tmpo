@@ -127,11 +127,11 @@ jobs:
           cp artifacts/tmpo-darwin-x64/tmpo-darwin-x64 release/
           cp artifacts/tmpo-linux-x64/tmpo-linux-x64 release/
           cp artifacts/tmpo-linux-arm64/tmpo-linux-arm64 release/
-          # Daemon binaries (all in one directory)
-          cp artifacts/tmpod-binaries/server/tmpod-darwin-arm64 release/
-          cp artifacts/tmpod-binaries/server/tmpod-darwin-x64 release/
-          cp artifacts/tmpod-binaries/server/tmpod-linux-x64 release/
-          cp artifacts/tmpod-binaries/server/tmpod-linux-arm64 release/
+          # Daemon binaries
+          cp artifacts/tmpod-binaries/tmpod-darwin-arm64 release/
+          cp artifacts/tmpod-binaries/tmpod-darwin-x64 release/
+          cp artifacts/tmpod-binaries/tmpod-linux-x64 release/
+          cp artifacts/tmpod-binaries/tmpod-linux-arm64 release/
           # Make all binaries executable
           chmod +x release/*
 
@@ -174,10 +174,10 @@ jobs:
           echo "tmpo_darwin_x64=$(sha256 tmpo-darwin-x64/tmpo-darwin-x64)" >> "$GITHUB_OUTPUT"
           echo "tmpo_linux_x64=$(sha256 tmpo-linux-x64/tmpo-linux-x64)" >> "$GITHUB_OUTPUT"
           echo "tmpo_linux_arm64=$(sha256 tmpo-linux-arm64/tmpo-linux-arm64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_darwin_arm64=$(sha256 tmpod-binaries/server/tmpod-darwin-arm64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_darwin_x64=$(sha256 tmpod-binaries/server/tmpod-darwin-x64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_linux_x64=$(sha256 tmpod-binaries/server/tmpod-linux-x64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_linux_arm64=$(sha256 tmpod-binaries/server/tmpod-linux-arm64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_darwin_arm64=$(sha256 tmpod-binaries/tmpod-darwin-arm64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_darwin_x64=$(sha256 tmpod-binaries/tmpod-darwin-x64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_linux_x64=$(sha256 tmpod-binaries/tmpod-linux-x64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_linux_arm64=$(sha256 tmpod-binaries/tmpod-linux-arm64)" >> "$GITHUB_OUTPUT"
 
       - name: Update Homebrew formula
         env:
