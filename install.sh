@@ -67,7 +67,7 @@ main() {
   local base_url="https://github.com/${REPO}/releases/download/${tag}"
   local tmpdir
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  trap 'rm -rf "${tmpdir:-}"' EXIT
 
   # Download CLI and daemon
   echo "Downloading tmpo..."
@@ -105,8 +105,8 @@ main() {
 
     if [ -n "$shell_profile" ] && [ -f "$shell_profile" ]; then
       if ! grep -q "${INSTALL_DIR}" "$shell_profile" 2>/dev/null; then
-        read -r -p "Add to ${shell_profile} now? [Y/n] " answer </dev/tty
-        answer="${answer:-y}"
+        answer="n"
+        read -r -p "Add to ${shell_profile} now? [Y/n] " answer </dev/tty 2>/dev/null || true
         if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
           echo "" >> "$shell_profile"
           echo "# tmpo" >> "$shell_profile"
