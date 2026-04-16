@@ -1,7 +1,7 @@
 import http from "http";
 import path from "path";
 import os from "os";
-import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync, readdirSync, statSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from "fs";
 import express from "express";
 import { createApp } from "./app";
 import { logger } from "./utils/logger";
@@ -27,7 +27,6 @@ if (process.argv.includes("--version")) {
 const TMPO_DIR = path.join(os.homedir(), ".tmpo");
 const SOCKET_PATH = path.join(TMPO_DIR, "tmpod.sock");
 const PID_PATH = path.join(TMPO_DIR, "tmpod.pid");
-const PUBLIC_DIR = path.join(import.meta.dir, "..", "public");
 
 // --- PID file management ---
 
@@ -115,9 +114,6 @@ async function main(): Promise<void> {
   });
   app.use("/v1", daemonRouter);
 
-  // Static web UI serving (for TCP listener)
-  await mountWebUi(app);
-
   // 404 for unmatched routes
   app.use((_req, res) => {
     res.status(404).json({ error: "Not found" });
@@ -144,73 +140,6 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", () => handleSignal("SIGTERM"));
   process.on("SIGINT", () => handleSignal("SIGINT"));
-}
-
-async function mountWebUi(app: express.Express): Promise<void> {
-  // Try the embedded manifest first (compiled binary). The dynamic import is
-  // wrapped in try/catch so dev mode works without running the generator.
-  let embedded: Record<string, string> = {};
-  try {
-    const mod = await import("./generated/embedded-public");
-    embedded = mod.embeddedFiles ?? {};
-  } catch {
-    // No embedded module — dev mode will use the filesystem fallback below.
-  }
-
-  const hasEmbedded = Object.keys(embedded).length > 0;
-  const hasFilesystem = !hasEmbedded && existsSync(PUBLIC_DIR);
-
-  if (!hasEmbedded && !hasFilesystem) {
-    logger.warn("No web UI assets available; tmpo ui will 404");
-    return;
-  }
-
-  // Build a URL → on-disk-path map for either source.
-  const fileMap = new Map<string, string>();
-  if (hasEmbedded) {
-    for (const [url, p] of Object.entries(embedded)) fileMap.set(url, p);
-  } else {
-    const walk = (dir: string, base: string) => {
-      for (const name of readdirSync(dir)) {
-        const full = path.join(dir, name);
-        const s = statSync(full);
-        if (s.isDirectory()) walk(full, base);
-        else if (s.isFile()) {
-          const url = "/" + path.relative(base, full).split(path.sep).join("/");
-          fileMap.set(url, full);
-        }
-      }
-    };
-    walk(PUBLIC_DIR, PUBLIC_DIR);
-  }
-
-  const indexPath = fileMap.get("/index.html");
-
-  app.get("*", async (req, res, next) => {
-    if (req.path.startsWith("/v1/") || req.path.startsWith("/health") || req.path.startsWith("/docs")) {
-      return next();
-    }
-
-    const key = req.path === "/" ? "/index.html" : req.path;
-    const direct = fileMap.get(key);
-
-    if (direct) {
-      res.type(path.extname(key) || ".html");
-      res.send(Buffer.from(await Bun.file(direct).arrayBuffer()));
-      return;
-    }
-
-    // SPA fallback: extensionless paths get index.html so client-side routing works.
-    if (!path.extname(req.path) && indexPath) {
-      res.type("html");
-      res.send(Buffer.from(await Bun.file(indexPath).arrayBuffer()));
-      return;
-    }
-
-    next();
-  });
-
-  logger.info(`Web UI mounted (${hasEmbedded ? "embedded" : "filesystem"}, ${fileMap.size} files)`);
 }
 
 function enableTcp(app: express.Express, port: number): { success: boolean; error?: string } {

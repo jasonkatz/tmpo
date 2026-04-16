@@ -7,15 +7,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
   {
-    ignores: [
-      "dist/**",
-      "node_modules/**",
-      "coverage/**",
-      "*.cjs",
-      "migrations/**",
-      "public/**",
-      "src/generated/**",
-    ],
+    ignores: ["dist/**", "node_modules/**", "coverage/**", "*.cjs", "migrations/**"],
   },
   {
     rules: {
