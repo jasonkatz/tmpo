@@ -83,9 +83,11 @@ async function defaultBackend(): Promise<WorkflowBackend> {
       const wlocal = await import("@workflow/world-local" as any);
       if (typeof wlocal.createLocalWorld === "function") {
         world = wlocal.createLocalWorld({ dataDir });
-        if (world && typeof world.start === "function") {
-          await world.start();
-        }
+        // NB: `world.start()` triggers re-enqueueing of any active runs left
+        // from the previous daemon lifecycle. Defer it to `resumeActive()`
+        // below so the engine's boot sequence can reap orphan subprocesses
+        // BEFORE any step is replayed — otherwise a replayed spawn could
+        // match the surviving orphan's sentinel argv and collide.
       }
     } catch {
       // world-local optional — the api module may already have configured
@@ -106,6 +108,12 @@ async function defaultBackend(): Promise<WorkflowBackend> {
       return { runId: run.runId };
     },
     async resumeActive() {
+      // `world.start()` internally scans `runs/` for non-terminal state and
+      // re-enqueues them. Must run AFTER the subprocess reaper (enforced by
+      // engine.start()'s call order).
+      if (world && typeof world.start === "function") {
+        await world.start();
+      }
       if (api.reenqueueActiveRuns) {
         await api.reenqueueActiveRuns();
       }
