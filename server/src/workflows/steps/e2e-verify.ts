@@ -1,6 +1,6 @@
 import { createRunLogger } from "../../utils/run-logger";
 import type { E2eVerifyStepInput, E2eVerifyStepResult } from "../types";
-import { getStepDeps } from "./deps";
+import { getStepDeps, stepIdFor } from "./deps";
 import type { Workflow } from "../../dao/workflow-dao";
 
 export async function e2eVerifyStep(
@@ -11,10 +11,14 @@ export async function e2eVerifyStep(
   const deps = getStepDeps();
   const token = deps.getDecryptedToken();
   const runLogger = createRunLogger(input.workflowId, "e2e_verify", input.iteration);
+  const stepId = stepIdFor(input.workflowId, input.iteration, "e2e_verify");
 
   try {
     const workflow = toWorkflow(input);
-    const result = await deps.runE2eVerifier(workflow, input.evidence, token, runLogger);
+    const result = await deps.runE2eVerifier(workflow, input.evidence, token, runLogger, {
+      stepId,
+      pidRegistry: deps.pidRegistry,
+    });
     return {
       ok: result.e2ePass,
       verdict: result.verdict,

@@ -7,6 +7,7 @@ import { runE2eVerifier as defaultRunE2eVerifier } from "../../engine/e2e-verifi
 import { generatePrDescription as defaultGeneratePrDescription } from "../../engine/pr-description";
 import { githubService as defaultGithubService } from "../../services/github-service";
 import { configService as defaultConfigService } from "../../services/config-service";
+import type { PidRegistry } from "../../engine/subprocess-reaper";
 
 export interface StepDeps {
   runPlannerAgent: typeof defaultRunPlanner;
@@ -21,6 +22,21 @@ export interface StepDeps {
   getPrDiff: (token: string, repo: string, prNumber: number) => Promise<string>;
   getHeadSha: (token: string, repo: string, branch: string) => Promise<string>;
   getDecryptedToken: () => string;
+  /**
+   * Shared with the engine so each claude spawn can record its pid and the
+   * startup reaper can find orphans across daemon restarts. Optional —
+   * absent in unit tests that don't exercise the reaper path.
+   */
+  pidRegistry?: PidRegistry;
+}
+
+/**
+ * Deterministic step identifier used both as the PID registry key and the
+ * `--tmpo-step-id=` sentinel on spawned subprocesses. Stable across WDK
+ * replays because it only depends on workflow inputs.
+ */
+export function stepIdFor(workflowId: string, iteration: number, type: string): string {
+  return `${workflowId}:${iteration}:${type}`;
 }
 
 async function defaultGetPrDiff(
@@ -86,9 +102,22 @@ async function defaultGetHeadSha(
 }
 
 let activeDeps: StepDeps | null = null;
+let activePidRegistry: PidRegistry | null = null;
 
 export function setStepDeps(deps: StepDeps): void {
   activeDeps = deps;
+}
+
+/**
+ * Called by the engine during startup with the daemon's disk-backed registry.
+ * Separate from `setStepDeps` so tests can override a single agent without
+ * having to construct a real registry.
+ */
+export function setStepPidRegistry(registry: PidRegistry): void {
+  activePidRegistry = registry;
+  if (activeDeps) {
+    activeDeps = { ...activeDeps, pidRegistry: registry };
+  }
 }
 
 export function getStepDeps(): StepDeps {
@@ -106,6 +135,7 @@ export function getStepDeps(): StepDeps {
     getPrDiff: defaultGetPrDiff,
     getHeadSha: defaultGetHeadSha,
     getDecryptedToken: defaultConfigService.getDecryptedToken.bind(defaultConfigService),
+    pidRegistry: activePidRegistry ?? undefined,
   };
   return activeDeps;
 }
@@ -116,4 +146,5 @@ export function getStepDeps(): StepDeps {
  */
 export function resetStepDeps(): void {
   activeDeps = null;
+  activePidRegistry = null;
 }

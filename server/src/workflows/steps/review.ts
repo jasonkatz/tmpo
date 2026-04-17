@@ -1,6 +1,6 @@
 import { createRunLogger } from "../../utils/run-logger";
 import type { ReviewStepInput, ReviewStepResult } from "../types";
-import { getStepDeps } from "./deps";
+import { getStepDeps, stepIdFor } from "./deps";
 import type { Workflow } from "../../dao/workflow-dao";
 
 export async function reviewStep(input: ReviewStepInput): Promise<ReviewStepResult> {
@@ -9,6 +9,7 @@ export async function reviewStep(input: ReviewStepInput): Promise<ReviewStepResu
   const deps = getStepDeps();
   const token = deps.getDecryptedToken();
   const runLogger = createRunLogger(input.workflowId, "review", input.iteration);
+  const stepId = stepIdFor(input.workflowId, input.iteration, "review");
 
   try {
     let diff: string;
@@ -27,7 +28,10 @@ export async function reviewStep(input: ReviewStepInput): Promise<ReviewStepResu
     }
 
     const workflow = toWorkflow(input);
-    const result = await deps.runReviewAgent(workflow, diff, token, runLogger);
+    const result = await deps.runReviewAgent(workflow, diff, token, runLogger, {
+      stepId,
+      pidRegistry: deps.pidRegistry,
+    });
     return {
       ok: result.reviewPass,
       verdict: result.verdict,

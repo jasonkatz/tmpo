@@ -1,6 +1,6 @@
 import { createRunLogger } from "../../utils/run-logger";
 import type { DevStepInput, DevStepResult } from "../types";
-import { getStepDeps } from "./deps";
+import { getStepDeps, stepIdFor } from "./deps";
 import type { Workflow } from "../../dao/workflow-dao";
 
 export async function devStep(input: DevStepInput): Promise<DevStepResult> {
@@ -8,11 +8,15 @@ export async function devStep(input: DevStepInput): Promise<DevStepResult> {
 
   const deps = getStepDeps();
   const runLogger = createRunLogger(input.workflowId, "dev", input.iteration);
+  const stepId = stepIdFor(input.workflowId, input.iteration, "dev");
 
   try {
     const token = deps.getDecryptedToken();
     const workflow = toWorkflow(input);
-    const result = await deps.runDevAgent(workflow, token, runLogger);
+    const result = await deps.runDevAgent(workflow, token, runLogger, {
+      stepId,
+      pidRegistry: deps.pidRegistry,
+    });
     return {
       ok: result.exitCode === 0,
       exitCode: result.exitCode,

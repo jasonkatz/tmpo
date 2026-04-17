@@ -1,6 +1,6 @@
 import { createRunLogger } from "../../utils/run-logger";
 import type { PlanStepInput, PlanStepResult } from "../types";
-import { getStepDeps } from "./deps";
+import { getStepDeps, stepIdFor } from "./deps";
 import type { Workflow } from "../../dao/workflow-dao";
 
 /**
@@ -15,11 +15,15 @@ export async function planStep(
 
   const deps = getStepDeps();
   const runLogger = createRunLogger(input.workflowId, "plan", 0);
+  const stepId = stepIdFor(input.workflowId, 0, "plan");
 
   try {
     const token = deps.getDecryptedToken();
     const workflow = toWorkflow(input, 0, null, null);
-    const result = await deps.runPlannerAgent(workflow, token, runLogger);
+    const result = await deps.runPlannerAgent(workflow, token, runLogger, {
+      stepId,
+      pidRegistry: deps.pidRegistry,
+    });
     return {
       ok: result.exitCode === 0 && !!result.proposal,
       proposal: result.proposal,

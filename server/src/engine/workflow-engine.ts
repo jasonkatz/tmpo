@@ -13,6 +13,7 @@ import {
 } from "./subprocess-reaper";
 import { runWorkflow } from "../workflows/run-workflow";
 import { contextFromWorkflow, type WorkflowContext } from "../workflows/types";
+import { setStepPidRegistry } from "../workflows/steps";
 import { logger } from "../utils/logger";
 
 /**
@@ -175,6 +176,9 @@ export async function createEngine(
   overrideDeps?: Partial<EngineDeps>
 ): Promise<Engine> {
   const pidRegistry = overrideDeps?.pidRegistry ?? createDiskPidRegistry();
+  // Publish the registry to the step module so each agent spawn records its
+  // pid without having to plumb the registry through every step signature.
+  setStepPidRegistry(pidRegistry);
   const indexSync =
     overrideDeps?.indexSync ??
     createIndexSync({

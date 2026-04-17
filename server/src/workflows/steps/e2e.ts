@@ -1,6 +1,6 @@
 import { createRunLogger } from "../../utils/run-logger";
 import type { E2eStepInput, E2eStepResult } from "../types";
-import { getStepDeps } from "./deps";
+import { getStepDeps, stepIdFor } from "./deps";
 import type { Workflow } from "../../dao/workflow-dao";
 
 export async function e2eStep(input: E2eStepInput): Promise<E2eStepResult> {
@@ -9,10 +9,14 @@ export async function e2eStep(input: E2eStepInput): Promise<E2eStepResult> {
   const deps = getStepDeps();
   const token = deps.getDecryptedToken();
   const runLogger = createRunLogger(input.workflowId, "e2e", input.iteration);
+  const stepId = stepIdFor(input.workflowId, input.iteration, "e2e");
 
   try {
     const workflow = toWorkflow(input);
-    const result = await deps.runE2eAgent(workflow, token, runLogger);
+    const result = await deps.runE2eAgent(workflow, token, runLogger, {
+      stepId,
+      pidRegistry: deps.pidRegistry,
+    });
     return {
       ok: result.e2ePass,
       evidence: result.evidence,
