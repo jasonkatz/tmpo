@@ -180,6 +180,7 @@ export async function createEngine(
     createIndexSync({
       workflowDao: overrideDeps?.workflowDao ?? defaultWorkflowDao,
       stepDao: overrideDeps?.stepDao ?? defaultStepDao,
+      runDao: overrideDeps?.runDao ?? defaultRunDao,
       eventBus: overrideDeps?.eventBus ?? defaultEventBus,
     });
   setIndexSync(indexSync);

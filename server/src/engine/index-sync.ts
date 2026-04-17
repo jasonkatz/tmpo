@@ -1,7 +1,8 @@
 import { workflowDao as defaultWorkflowDao } from "../dao/workflow-dao";
 import { stepDao as defaultStepDao } from "../dao/step-dao";
+import { runDao as defaultRunDao } from "../dao/run-dao";
 import { eventBus as defaultEventBus } from "../events/event-bus";
-import type { OrchestratorHooks } from "../workflows/orchestrator";
+import type { OrchestratorHooks, OrchestratorRunInfo } from "../workflows/orchestrator";
 import { logger } from "../utils/logger";
 
 /**
@@ -19,6 +20,7 @@ export interface IndexSyncDeps {
     "findById" | "updateStatus" | "updateProposal" | "updateError" | "updatePrNumber" | "updateIteration"
   >;
   stepDao: Pick<typeof defaultStepDao, "findByWorkflowId" | "createIterationSteps" | "updateStatus">;
+  runDao: Pick<typeof defaultRunDao, "findByStepIdAndRole" | "create" | "updateResult">;
   eventBus: Pick<typeof defaultEventBus, "emit">;
 }
 
@@ -62,6 +64,39 @@ export function createIndexSync(deps: IndexSyncDeps): IndexSync {
     await ensureIteration(workflowId, iteration);
     const map = typeToStepId.get(workflowId);
     return map?.get(stepKey(iteration, type)) ?? null;
+  }
+
+  /**
+   * Idempotent run-row upsert keyed on (step_id, agent_role). First call
+   * inserts; subsequent calls (e.g. during WDK replay) update the existing
+   * row's exit_code / duration_secs. Logs the operation but does not throw
+   * — runs are an index for `tmpo logs`, not the source of truth.
+   */
+  async function upsertRun(
+    workflowId: string,
+    stepId: string,
+    iteration: number,
+    run: OrchestratorRunInfo
+  ): Promise<void> {
+    const existing = await deps.runDao.findByStepIdAndRole(stepId, run.agentRole);
+    if (existing) {
+      await deps.runDao.updateResult(existing.id, {
+        exitCode: run.exitCode,
+        durationSecs: run.durationSecs,
+      });
+      return;
+    }
+    const created = await deps.runDao.create({
+      stepId,
+      workflowId,
+      agentRole: run.agentRole,
+      iteration,
+      logPath: run.logPath,
+    });
+    await deps.runDao.updateResult(created.id, {
+      exitCode: run.exitCode,
+      durationSecs: run.durationSecs,
+    });
   }
 
   return {
@@ -110,6 +145,9 @@ export function createIndexSync(deps: IndexSyncDeps): IndexSync {
             if (!stepId) return;
             const status = result.ok ? "passed" : "failed";
             await deps.stepDao.updateStatus(stepId, status, result.detail);
+            if (result.run) {
+              await upsertRun(workflowId, stepId, iteration, result.run);
+            }
             deps.eventBus.emit({
               type: "step:updated",
               workflowId,
@@ -182,6 +220,7 @@ export function getIndexSync(): IndexSync {
   activeIndexSync = createIndexSync({
     workflowDao: defaultWorkflowDao,
     stepDao: defaultStepDao,
+    runDao: defaultRunDao,
     eventBus: defaultEventBus,
   });
   return activeIndexSync;

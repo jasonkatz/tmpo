@@ -36,12 +36,25 @@ export interface OrchestratorSteps {
  * without re-triggering them (WDK caches step return values, and the hook
  * calls live inside step wrappers when we bind to the WDK runtime).
  */
+/**
+ * Per-step run details surfaced to the index-sync adapter so it can create a
+ * row in the SQLite `runs` table (what `tmpo logs` reads). Only set for
+ * agent-backed steps (plan / dev / review / e2e / e2e_verify); `ci` and
+ * `signoff` don't spawn an agent process and carry no run row.
+ */
+export interface OrchestratorRunInfo {
+  agentRole: string;
+  logPath: string;
+  exitCode: number;
+  durationSecs: number;
+}
+
 export interface OrchestratorHooks {
   onStepStart(type: string, iteration: number): void;
   onStepEnd(
     type: string,
     iteration: number,
-    result: { ok: boolean; detail?: string }
+    result: { ok: boolean; detail?: string; run?: OrchestratorRunInfo }
   ): void;
   onProposal(proposal: string): void;
   onPrCreated(prNumber: number, prUrl: string): void;
@@ -77,7 +90,16 @@ export async function orchestrate(
   // --- Plan (runs once) ---
   hooks.onStepStart("plan", 0);
   const plan = await steps.plan(ctx);
-  hooks.onStepEnd("plan", 0, { ok: plan.ok, detail: plan.ok ? undefined : plan.response });
+  hooks.onStepEnd("plan", 0, {
+    ok: plan.ok,
+    detail: plan.ok ? undefined : plan.response,
+    run: {
+      agentRole: "planner",
+      logPath: plan.logPath,
+      exitCode: plan.exitCode,
+      durationSecs: plan.durationSecs,
+    },
+  });
   if (!plan.ok || !plan.proposal) {
     const error = `Plan step failed: ${(plan.response || "Planner agent failed").substring(0, 500)}`;
     hooks.onFail(error);
@@ -95,7 +117,16 @@ export async function orchestrate(
     // --- Dev ---
     hooks.onStepStart("dev", iteration);
     const dev = await steps.dev({ ...ctx, iteration, proposal });
-    hooks.onStepEnd("dev", iteration, { ok: dev.ok, detail: dev.ok ? undefined : dev.response });
+    hooks.onStepEnd("dev", iteration, {
+      ok: dev.ok,
+      detail: dev.ok ? undefined : dev.response,
+      run: {
+        agentRole: "dev",
+        logPath: dev.logPath,
+        exitCode: dev.exitCode,
+        durationSecs: dev.durationSecs,
+      },
+    });
     if (!dev.ok) {
       const error = `Dev step failed: ${(dev.response || "Dev agent failed").substring(0, 500)}`;
       hooks.onFail(error);
@@ -133,7 +164,16 @@ export async function orchestrate(
     // --- Review ---
     hooks.onStepStart("review", iteration);
     const review = await steps.review({ ...ctx, iteration, proposal, prNumber });
-    hooks.onStepEnd("review", iteration, { ok: review.ok, detail: review.ok ? undefined : review.verdict });
+    hooks.onStepEnd("review", iteration, {
+      ok: review.ok,
+      detail: review.ok ? undefined : review.verdict,
+      run: {
+        agentRole: "reviewer",
+        logPath: review.logPath,
+        exitCode: review.exitCode,
+        durationSecs: review.durationSecs,
+      },
+    });
     await steps.postComment({
       repo: ctx.repo,
       prNumber,
@@ -147,7 +187,16 @@ export async function orchestrate(
     // --- E2E ---
     hooks.onStepStart("e2e", iteration);
     const e2e = await steps.e2e({ ...ctx, iteration, proposal, prNumber });
-    hooks.onStepEnd("e2e", iteration, { ok: e2e.ok, detail: e2e.ok ? undefined : e2e.response });
+    hooks.onStepEnd("e2e", iteration, {
+      ok: e2e.ok,
+      detail: e2e.ok ? undefined : e2e.response,
+      run: {
+        agentRole: "e2e",
+        logPath: e2e.logPath,
+        exitCode: e2e.exitCode,
+        durationSecs: e2e.durationSecs,
+      },
+    });
     await steps.postComment({
       repo: ctx.repo,
       prNumber,
@@ -170,6 +219,12 @@ export async function orchestrate(
     hooks.onStepEnd("e2e_verify", iteration, {
       ok: verify.ok,
       detail: verify.ok ? undefined : verify.verdict,
+      run: {
+        agentRole: "e2e_verifier",
+        logPath: verify.logPath,
+        exitCode: verify.exitCode,
+        durationSecs: verify.durationSecs,
+      },
     });
     await steps.postComment({
       repo: ctx.repo,

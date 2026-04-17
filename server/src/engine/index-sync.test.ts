@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from "bun:test";
 import { createIndexSync, type IndexSyncDeps } from "./index-sync";
 import type { Workflow } from "../dao/workflow-dao";
 import type { Step } from "../dao/step-dao";
+import type { Run } from "../dao/run-dao";
 import type { WorkflowEvent } from "../events/event-bus";
 
 const STEP_TYPES = ["plan", "dev", "ci", "review", "e2e", "e2e_verify", "signoff"] as const;
@@ -50,6 +51,10 @@ function makeDeps() {
   const iterationUpdates: Array<{ id: string; iteration: number }> = [];
   const workflowStatusUpdates: Array<{ id: string; status: string }> = [];
 
+  const runs = new Map<string, Run>();
+  const runResultUpdates: Array<{ runId: string; exitCode: number; durationSecs: number }> = [];
+  let runSeq = 0;
+
   const deps: IndexSyncDeps = {
     workflowDao: {
       findById: mock(async (id: string) => workflowState[id] ?? null),
@@ -90,6 +95,43 @@ function makeDeps() {
         return null;
       }),
     },
+    runDao: {
+      findByStepIdAndRole: mock(async (stepId: string, agentRole: string) => {
+        return runs.get(`${stepId}:${agentRole}`) ?? null;
+      }),
+      create: mock(async (data: {
+        stepId: string;
+        workflowId: string;
+        agentRole: string;
+        iteration: number;
+        logPath: string;
+      }) => {
+        const run: Run = {
+          id: `run-${++runSeq}`,
+          step_id: data.stepId,
+          workflow_id: data.workflowId,
+          agent_role: data.agentRole,
+          iteration: data.iteration,
+          log_path: data.logPath,
+          exit_code: null,
+          duration_secs: null,
+          created_at: new Date(),
+        };
+        runs.set(`${data.stepId}:${data.agentRole}`, run);
+        return run;
+      }),
+      updateResult: mock(async (runId: string, data: { exitCode: number; durationSecs: number }) => {
+        runResultUpdates.push({ runId, exitCode: data.exitCode, durationSecs: data.durationSecs });
+        for (const [key, run] of runs.entries()) {
+          if (run.id === runId) {
+            const updated = { ...run, exit_code: data.exitCode, duration_secs: data.durationSecs };
+            runs.set(key, updated);
+            return updated;
+          }
+        }
+        return null;
+      }),
+    },
     eventBus: {
       emit: mock((event: WorkflowEvent) => {
         emitted.push(event);
@@ -108,6 +150,8 @@ function makeDeps() {
     prUpdates,
     iterationUpdates,
     workflowStatusUpdates,
+    runs,
+    runResultUpdates,
   };
 }
 
@@ -251,6 +295,61 @@ describe("createIndexSync", () => {
     const devIdx = statusUpdates.findIndex((u) => u.stepId === "wf-1-0-dev" && u.status === "failed");
     expect(planIdx).toBeGreaterThanOrEqual(0);
     expect(devIdx).toBeGreaterThan(planIdx);
+  });
+
+  it("creates a run row when onStepEnd carries run info", async () => {
+    const { deps, runs, runResultUpdates } = makeDeps();
+    const sync = createIndexSync(deps);
+    const hooks = sync.hooksFor("wf-1");
+
+    hooks.onStepStart("dev", 0);
+    hooks.onStepEnd("dev", 0, {
+      ok: true,
+      run: { agentRole: "dev", logPath: "/tmp/dev.jsonl", exitCode: 0, durationSecs: 12.5 },
+    });
+    await flush();
+
+    const run = runs.get("wf-1-0-dev:dev");
+    expect(run).toBeDefined();
+    expect(run?.log_path).toBe("/tmp/dev.jsonl");
+    expect(runResultUpdates).toEqual([{ runId: run!.id, exitCode: 0, durationSecs: 12.5 }]);
+    expect(deps.runDao.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("upserts the run row on replay — does not duplicate", async () => {
+    const { deps, runs } = makeDeps();
+    const sync = createIndexSync(deps);
+    const hooks = sync.hooksFor("wf-1");
+
+    hooks.onStepStart("dev", 0);
+    hooks.onStepEnd("dev", 0, {
+      ok: true,
+      run: { agentRole: "dev", logPath: "/tmp/dev.jsonl", exitCode: 0, durationSecs: 12.5 },
+    });
+    hooks.onStepEnd("dev", 0, {
+      ok: true,
+      run: { agentRole: "dev", logPath: "/tmp/dev.jsonl", exitCode: 0, durationSecs: 12.5 },
+    });
+    await flush();
+
+    expect(deps.runDao.create).toHaveBeenCalledTimes(1);
+    expect(deps.runDao.updateResult).toHaveBeenCalledTimes(2);
+    expect(runs.size).toBe(1);
+  });
+
+  it("skips run-row writes when onStepEnd has no run info (ci, signoff)", async () => {
+    const { deps } = makeDeps();
+    const sync = createIndexSync(deps);
+    const hooks = sync.hooksFor("wf-1");
+
+    hooks.onStepStart("ci", 0);
+    hooks.onStepEnd("ci", 0, { ok: true });
+    hooks.onStepStart("signoff", 0);
+    hooks.onStepEnd("signoff", 0, { ok: true });
+    await flush();
+
+    expect(deps.runDao.create).not.toHaveBeenCalled();
+    expect(deps.runDao.updateResult).not.toHaveBeenCalled();
   });
 
   it("keeps iteration tracking independent per workflowId", async () => {

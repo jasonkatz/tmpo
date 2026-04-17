@@ -41,6 +41,7 @@ function makeDeps() {
   const mockRunFindByWorkflowId = mock((_wfId: string, _filters?: unknown) =>
     Promise.resolve([])
   );
+  const mockRunFindById = mock((_runId: string) => Promise.resolve(null));
 
   const mockHasGithubToken = mock(() => true);
 
@@ -64,6 +65,7 @@ function makeDeps() {
     } as WorkflowServiceDeps["stepDao"],
     runDao: {
       findByWorkflowId: mockRunFindByWorkflowId,
+      findById: mockRunFindById,
     } as WorkflowServiceDeps["runDao"],
     configService: {
       hasGithubToken: mockHasGithubToken,
@@ -82,6 +84,7 @@ function makeDeps() {
       stepFindByWorkflowId: mockStepFindByWorkflowId,
       stepFindLatest: mockStepFindLatest,
       runFindByWorkflowId: mockRunFindByWorkflowId,
+      runFindById: mockRunFindById,
       hasGithubToken: mockHasGithubToken,
       enqueueWorkflow: mockEnqueueWorkflow,
       cancelWorkflowJobs: mockCancelWorkflowJobs,
