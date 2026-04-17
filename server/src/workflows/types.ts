@@ -25,7 +25,7 @@ export function contextFromWorkflow(w: Workflow): WorkflowContext {
   };
 }
 
-export interface PlanStepInput extends WorkflowContext {}
+export type PlanStepInput = WorkflowContext;
 export interface PlanStepResult {
   ok: boolean;
   proposal: string | null;

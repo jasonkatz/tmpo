@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, readdirSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync } from "fs";
 import path from "path";
 import os from "os";
 import {
@@ -170,7 +170,7 @@ describe("createDiskPidRegistry", () => {
     const registry = createDiskPidRegistry(tmpDir);
     registry.record("good", 5);
     // Drop a bogus file into the registry directory.
-    require("fs").writeFileSync(path.join(tmpDir, "corrupt.json"), "not json", "utf-8");
+    writeFileSync(path.join(tmpDir, "corrupt.json"), "not json", "utf-8");
 
     const records = registry.list();
     expect(records).toHaveLength(1);

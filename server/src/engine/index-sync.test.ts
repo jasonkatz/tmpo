@@ -28,7 +28,7 @@ function wf(overrides?: Partial<Workflow>): Workflow {
 
 function makeStepRows(workflowId: string, iteration: number): Step[] {
   const types = iteration > 0 ? STEP_TYPES.filter((t) => t !== "plan") : STEP_TYPES;
-  return types.map((type, i) => ({
+  return types.map((type) => ({
     id: `${workflowId}-${iteration}-${type}`,
     workflow_id: workflowId,
     iteration,

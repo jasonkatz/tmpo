@@ -20,12 +20,16 @@ export interface RunLogger {
 }
 
 /**
- * Per-step logger that holds a single open file descriptor and writes each
- * event as a full JSONL line via `writeSync`. This beats `appendFileSync`
- * (one open/close per event) for throughput and keeps each record atomic at
- * the fd level. The fd is closed by `close()` on step completion. A final
- * `fsync` on close pushes OS buffers to disk; mid-step `kill -9` may still
- * truncate the tail line, which `parseJsonlTolerant()` drops on read.
+ * Per-step logger that holds a single open file descriptor for the duration
+ * of the step, equivalent to a flushed `fs.WriteStream` (each `writeSync`
+ * is a full flush to the OS, so there is no internal buffer to lose on
+ * `kill -9`). This beats `appendFileSync` on throughput by avoiding an
+ * open/close per event and keeps each record atomic at the fd level.
+ *
+ * Closed by `close()` on step completion; a final `fsyncSync` pushes OS
+ * buffers to disk. A mid-step `kill -9` between the last `writeSync` and
+ * an `fsync` may still truncate the tail line — `parseJsonlTolerant()`
+ * drops that partial line on read.
  */
 export function createRunLogger(
   workflowId: string,
