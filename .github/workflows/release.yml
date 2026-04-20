@@ -69,8 +69,28 @@ jobs:
           path: ${{ matrix.artifact }}
 
   build-daemon:
-    name: Build Daemon (all targets)
-    runs-on: ubuntu-latest
+    # Build each target on its matching OS. Bun's --compile can cross-compile
+    # for the JS target, but transitive deps include native .node modules
+    # (cbor-extract via @vercel/queue) whose platform-specific files are only
+    # installed by bun on the matching host. Building each target on a host
+    # that matches its OS ensures the correct .node file is bundled.
+    name: Build Daemon (${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          - target: bun-darwin-arm64
+            os: macos-latest
+            artifact: tmpod-darwin-arm64
+          - target: bun-darwin-x64
+            os: macos-13
+            artifact: tmpod-darwin-x64
+          - target: bun-linux-x64
+            os: ubuntu-latest
+            artifact: tmpod-linux-x64
+          - target: bun-linux-arm64
+            os: ubuntu-24.04-arm
+            artifact: tmpod-linux-arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,23 +110,15 @@ jobs:
         working-directory: server
         run: node scripts/patch-wdk.mjs
 
-      - name: Build daemon binaries
+      - name: Build daemon binary
         working-directory: server
-        run: |
-          bun build src/daemon.ts --compile --target bun-darwin-arm64 --outfile tmpod-darwin-arm64
-          bun build src/daemon.ts --compile --target bun-darwin-x64 --outfile tmpod-darwin-x64
-          bun build src/daemon.ts --compile --target bun-linux-x64 --outfile tmpod-linux-x64
-          bun build src/daemon.ts --compile --target bun-linux-arm64 --outfile tmpod-linux-arm64
+        run: bun build src/daemon.ts --compile --target ${{ matrix.target }} --outfile ${{ matrix.artifact }}
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tmpod-binaries
-          path: |
-            server/tmpod-darwin-arm64
-            server/tmpod-darwin-x64
-            server/tmpod-linux-x64
-            server/tmpod-linux-arm64
+          name: ${{ matrix.artifact }}
+          path: server/${{ matrix.artifact }}
 
   release:
     name: Create Release
@@ -123,17 +135,15 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          # CLI binaries (each in its own directory from upload-artifact)
+          # Every artifact is uploaded under a dir matching its filename.
           cp artifacts/tmpo-darwin-arm64/tmpo-darwin-arm64 release/
           cp artifacts/tmpo-darwin-x64/tmpo-darwin-x64 release/
           cp artifacts/tmpo-linux-x64/tmpo-linux-x64 release/
           cp artifacts/tmpo-linux-arm64/tmpo-linux-arm64 release/
-          # Daemon binaries
-          cp artifacts/tmpod-binaries/tmpod-darwin-arm64 release/
-          cp artifacts/tmpod-binaries/tmpod-darwin-x64 release/
-          cp artifacts/tmpod-binaries/tmpod-linux-x64 release/
-          cp artifacts/tmpod-binaries/tmpod-linux-arm64 release/
-          # Make all binaries executable
+          cp artifacts/tmpod-darwin-arm64/tmpod-darwin-arm64 release/
+          cp artifacts/tmpod-darwin-x64/tmpod-darwin-x64 release/
+          cp artifacts/tmpod-linux-x64/tmpod-linux-x64 release/
+          cp artifacts/tmpod-linux-arm64/tmpod-linux-arm64 release/
           chmod +x release/*
 
       - name: Generate SHA256SUMS
@@ -175,10 +185,10 @@ jobs:
           echo "tmpo_darwin_x64=$(sha256 tmpo-darwin-x64/tmpo-darwin-x64)" >> "$GITHUB_OUTPUT"
           echo "tmpo_linux_x64=$(sha256 tmpo-linux-x64/tmpo-linux-x64)" >> "$GITHUB_OUTPUT"
           echo "tmpo_linux_arm64=$(sha256 tmpo-linux-arm64/tmpo-linux-arm64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_darwin_arm64=$(sha256 tmpod-binaries/tmpod-darwin-arm64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_darwin_x64=$(sha256 tmpod-binaries/tmpod-darwin-x64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_linux_x64=$(sha256 tmpod-binaries/tmpod-linux-x64)" >> "$GITHUB_OUTPUT"
-          echo "tmpod_linux_arm64=$(sha256 tmpod-binaries/tmpod-linux-arm64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_darwin_arm64=$(sha256 tmpod-darwin-arm64/tmpod-darwin-arm64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_darwin_x64=$(sha256 tmpod-darwin-x64/tmpod-darwin-x64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_linux_x64=$(sha256 tmpod-linux-x64/tmpod-linux-x64)" >> "$GITHUB_OUTPUT"
+          echo "tmpod_linux_arm64=$(sha256 tmpod-linux-arm64/tmpod-linux-arm64)" >> "$GITHUB_OUTPUT"
 
       - name: Update Homebrew formula
         env:
